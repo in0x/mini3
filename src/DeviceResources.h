@@ -32,19 +32,21 @@ public:
 		IF_EnableHDR = 1 << 2
 	};
 
-	void init(HWND window, uint32_t initFlags);
+	~DeviceResources();
+
+	void Init(HWND window, uint32_t initFlags);
 	bool IsTearingAllowed();
-	void SetNextFenceValue();
+	void Flush();
 
 	ID3D12Device*               GetD3DDevice() const { return m_d3dDevice.Get(); }
 	IDXGISwapChain3*            GetSwapChain() const { return m_swapChain.Get(); }
 	IDXGIFactory4*              GetDXGIFactory() const { return m_dxgiFactory.Get(); }
 	D3D_FEATURE_LEVEL           GetDeviceFeatureLevel() const { return m_d3dFeatureLevel; }
-	uint64_t					GetCurrentFenceValue() const { return m_fenceValues[m_backBufferIndex]; }
-	ID3D12Resource*             GetRenderTarget() const { return m_renderTargets[m_backBufferIndex].Get(); }
+	uint64_t					GetCurrentFenceValue() const { return m_fenceValues[m_frameIndex]; }
+	ID3D12Resource*             GetCurrentRenderTarget() const { return m_renderTargets[m_frameIndex].Get(); }
 	ID3D12Resource*             GetDepthStencil() const { return m_depthStencil.Get(); }
 	ID3D12CommandQueue*         GetCommandQueue() const { return m_commandQueue.Get(); }
-	ID3D12CommandAllocator*     GetCommandAllocator() const { return m_commandAllocators[m_backBufferIndex].Get(); }
+	ID3D12CommandAllocator*     GetCommandAllocator() const { return m_commandAllocators[m_frameIndex].Get(); }
 	ID3D12GraphicsCommandList*  GetCommandList() const { return m_commandList.Get(); }
 	ID3D12Fence*				GetFence() const { return m_fence.Get(); }
 	HANDLE						GetFenceEvent() { return m_fenceEvent.Get(); }
@@ -52,7 +54,7 @@ public:
 	DXGI_FORMAT                 GetDepthBufferFormat() const { return m_depthBufferFormat; }
 	D3D12_VIEWPORT              GetScreenViewport() const { return m_screenViewport; }
 	D3D12_RECT                  GetScissorRect() const { return m_scissorRect; }
-	UINT                        GetCurrentFrameIndex() const { return m_backBufferIndex; }
+	UINT                        GetCurrentFrameIndex() const { return m_frameIndex; }
 	UINT                        GetBackBufferCount() const { return m_backBufferCount; }
 	DXGI_COLOR_SPACE_TYPE       GetColorSpace() const { return m_colorSpace; }
 
@@ -78,7 +80,7 @@ private:
 	void createBackBuffers();
 	void createDepthBuffer(uint32_t width, uint32_t height);
 
-	uint32_t							m_backBufferIndex;
+	uint32_t							m_frameIndex;
 
 	ComPtr<ID3D12Device>                m_d3dDevice;
 	ComPtr<ID3D12CommandQueue>          m_commandQueue;
@@ -121,20 +123,52 @@ private:
 	uint32_t m_initFlags;
 };
 
+DeviceResources::~DeviceResources()
+{
+	Flush();
+	CloseHandle(m_fenceEvent.Get());
+}
+
+void DeviceResources::Flush()
+{
+	// Prepare to render the next frame.
+	uint64_t currentFenceValue = GetCurrentFenceValue();
+	ID3D12Fence* fence = GetFence();
+	HANDLE fenceEvent = GetFenceEvent();
+
+	HRESULT hr = GetCommandQueue()->Signal(fence, currentFenceValue);
+	ASSERT_RESULT(hr);
+
+	// WaitForFenceValue.
+	// If the next frame is not ready to be rendered yet, wait until it is ready.
+	if (m_fence->GetCompletedValue() < currentFenceValue)
+	{
+		hr = fence->SetEventOnCompletion(currentFenceValue, fenceEvent);
+		ASSERT_RESULT(hr);
+		WaitForSingleObjectEx(fenceEvent, INFINITE, FALSE);
+	}
+
+	// Set the fence value for the next frame.
+	m_fenceValues[m_frameIndex] = currentFenceValue + 1;
+
+	m_frameIndex = m_swapChain->GetCurrentBackBufferIndex();
+
+	if (!m_dxgiFactory->IsCurrent())
+	{
+		// Output information is cached on the DXGI Factory. If it is stale we need to create a new factory.
+		hr = CreateDXGIFactory2(m_dxgiFactoryFlags, IID_PPV_ARGS(m_dxgiFactory.ReleaseAndGetAddressOf()));
+		ASSERT_RESULT(hr);
+	}
+}
+
 CD3DX12_CPU_DESCRIPTOR_HANDLE DeviceResources::GetRenderTargetView() const
 {
-	return CD3DX12_CPU_DESCRIPTOR_HANDLE(m_rtvDescriptorHeap->GetCPUDescriptorHandleForHeapStart(), m_backBufferIndex, m_rtvDescriptorSize);
+	return CD3DX12_CPU_DESCRIPTOR_HANDLE(m_rtvDescriptorHeap->GetCPUDescriptorHandleForHeapStart(), m_frameIndex, m_rtvDescriptorSize);
 }
 
 CD3DX12_CPU_DESCRIPTOR_HANDLE DeviceResources::GetDepthStencilView() const
 {
 	return CD3DX12_CPU_DESCRIPTOR_HANDLE(m_dsvDescriptorHeap->GetCPUDescriptorHandleForHeapStart());
-}
-
-void DeviceResources::SetNextFenceValue()
-{
-	// Set the fence value for the next frame.
-	m_fenceValues[m_backBufferIndex] = GetCurrentFenceValue() + 1;
 }
 
 bool DeviceResources::IsTearingAllowed()
@@ -190,7 +224,7 @@ IDXGIAdapter1* getFirstAvailableHardwareAdapter(ComPtr<IDXGIFactory4> dxgiFactor
 	return adapter.Detach();
 }
 
-void DeviceResources::init(HWND window, uint32_t initFlags)
+void DeviceResources::Init(HWND window, uint32_t initFlags)
 {
 	const bool bEnableDebugLayer = initFlags & IF_EnableDebugLayer;
 	const bool bWantAllowTearing = initFlags & IF_AllowTearing;
@@ -201,7 +235,7 @@ void DeviceResources::init(HWND window, uint32_t initFlags)
 	m_d3dMinFeatureLevel = D3D_FEATURE_LEVEL_11_0;
 	m_d3dFeatureLevel = D3D_FEATURE_LEVEL_11_0;
 
-	m_backBufferIndex = 0;
+	m_frameIndex = 0;
 	m_backBufferCount = 2;
 
 	m_rtvDescriptorSize = 0;
@@ -384,7 +418,7 @@ void DeviceResources::initWindowSizeDependent()
 	for (uint32_t n = 0; n < m_backBufferCount; n++)
 	{
 		m_renderTargets[n].Reset();
-		m_fenceValues[n] = m_fenceValues[m_backBufferIndex];
+		m_fenceValues[n] = m_fenceValues[m_frameIndex];
 	}
 
 	const uint32_t backBufferWidth = max(static_cast<uint32_t>(m_outputSize.right - m_outputSize.left), 1u);
@@ -406,7 +440,7 @@ void DeviceResources::initWindowSizeDependent()
 	createBackBuffers();
 
 	// Reset the index to the current back buffer.
-	m_backBufferIndex = m_swapChain->GetCurrentBackBufferIndex();
+	m_frameIndex = m_swapChain->GetCurrentBackBufferIndex();
 
 	if (m_depthBufferFormat != DXGI_FORMAT_UNKNOWN)
 	{
@@ -494,7 +528,7 @@ void DeviceResources::WaitForGpu()
 	}
 
 	// Schedule a Signal command in the GPU queue.
-	uint64_t fenceValue = m_fenceValues[m_backBufferIndex];
+	uint64_t fenceValue = m_fenceValues[m_frameIndex];
 
 	if (!SUCCEEDED(m_commandQueue->Signal(m_fence.Get(), fenceValue)))
 	{
@@ -510,7 +544,7 @@ void DeviceResources::WaitForGpu()
 	WaitForSingleObjectEx(m_fenceEvent.Get(), INFINITE, FALSE);
 
 	// Increment the fence value for the current frame.
-	m_fenceValues[m_backBufferIndex]++;
+	m_fenceValues[m_frameIndex]++;
 }
 
 void DeviceResources::enableDebugLayer()
@@ -687,9 +721,9 @@ void DeviceResources::createCommandList()
 void DeviceResources::createEndOfFrameFence()
 {
 	// Create a fence for tracking GPU execution progress.
-	HRESULT createdFence = m_d3dDevice->CreateFence(m_fenceValues[m_backBufferIndex], D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(m_fence.ReleaseAndGetAddressOf()));
+	HRESULT createdFence = m_d3dDevice->CreateFence(m_fenceValues[m_frameIndex], D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(m_fence.ReleaseAndGetAddressOf()));
 	ASSERT_RESULT(createdFence);
-	m_fenceValues[m_backBufferIndex]++;
+	m_fenceValues[m_frameIndex]++;
 
 	m_fence->SetName(L"DeviceResources");
 

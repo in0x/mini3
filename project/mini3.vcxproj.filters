@@ -3,10 +3,13 @@
   <ItemGroup>
     <ClCompile Include="../src/main.cpp" />
     <ClCompile Include="..\src\Windows.cpp" />
+    <ClCompile Include="..\src\Window.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\src\d3dx12.h" />
     <ClInclude Include="..\src\Windows.h" />
     <ClInclude Include="..\src\Core.h" />
+    <ClInclude Include="..\src\DeviceResources.h" />
+    <ClInclude Include="..\src\Window.h" />
   </ItemGroup>
 </Project>
