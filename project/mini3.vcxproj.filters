@@ -2,8 +2,11 @@
 <Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
     <ClCompile Include="../src/main.cpp" />
+    <ClCompile Include="..\src\Windows.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\src\d3dx12.h" />
+    <ClInclude Include="..\src\Windows.h" />
+    <ClInclude Include="..\src\Core.h" />
   </ItemGroup>
 </Project>
