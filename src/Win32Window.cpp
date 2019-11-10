@@ -37,7 +37,7 @@ static LRESULT CALLBACK OnMainWindowEvent(HWND handle, UINT message, WPARAM wPar
 
 static char const * const s_mainWindowClassName = "mini3::Win32Window";
 
-bool Win32Window::Init(WindowConfig const& config, BaseApp* app)
+bool Win32Window::Init(WindowConfig const& config)
 {
 	RegisterWindowClass(s_mainWindowClassName, &OnMainWindowEvent);
 
@@ -84,7 +84,7 @@ bool Win32Window::Init(WindowConfig const& config, BaseApp* app)
 		nullptr, // Parent window
 		nullptr,
 		GetModuleHandle(nullptr),
-		nullptr);
+		this);
 
 	if (m_mainWindowHandle == nullptr)
 	{
@@ -94,40 +94,33 @@ bool Win32Window::Init(WindowConfig const& config, BaseApp* app)
 
 	if (config.bAutoShow)
 	{
-		ShowWindow(m_mainWindowHandle, SW_SHOW);
-		SetForegroundWindow(m_mainWindowHandle);
+		ShowWindow((HWND)m_mainWindowHandle, SW_SHOW);
+		SetForegroundWindow((HWND)m_mainWindowHandle);
 	}
 
-	UpdateWindow(m_mainWindowHandle);
-
-	m_app = app;
-
-	LOG("Created window TITLE: %s WIDTH: %u HEIGHT: %u FULLSCREEN: %d", config.title, config.width, config.height, static_cast<int32_t>(config.bFullscreen));
-
-	m_app->SetNativeHandle(m_mainWindowHandle);
-	m_app->Init();
+	UpdateWindow((HWND)m_mainWindowHandle);
+	
+	LOG("Created window TITLE: %s WIDTH: %u HEIGHT: %u FULLSCREEN: %d", config.title, config.width, config.height, static_cast<s32>(config.bFullscreen));
 
 	return m_mainWindowHandle != nullptr;
 }
 
-void Win32Window::Run()
+bool Win32Window::Run()
 {
 	MSG msg = {};
-	while (WM_QUIT != msg.message)
+	while (PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE))
 	{
-		if (PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE))
+		if (WM_QUIT == msg.message)
 		{
-			TranslateMessage(&msg);
-			DispatchMessage(&msg);
+			m_msgQueue.AddQuitMessage();
+			return false;
 		}
-		else
-		{
-			m_app->Update();
-			m_app->Render();
-		}
+
+		TranslateMessage(&msg);
+		DispatchMessage(&msg);
 	}
 
-	m_app->Exit();
+	return true;
 }
 
 void Win32Window::Exit()
@@ -143,7 +136,7 @@ static LRESULT CALLBACK OnMainWindowEvent(HWND handle, UINT message, WPARAM wPar
 	// WPARAM -> Word parameter, carries "words" i.e. handle, integers
 	// LAPARM -> Long paramter -> carries pointers
 
-	BaseApp* window = reinterpret_cast<BaseApp*>(GetWindowLongPtr(handle, GWLP_USERDATA));
+	Win32Window* window = reinterpret_cast<Win32Window*>(GetWindowLongPtr(handle, GWLP_USERDATA));
 
 	switch (message)
 	{
@@ -161,13 +154,21 @@ static LRESULT CALLBACK OnMainWindowEvent(HWND handle, UINT message, WPARAM wPar
 	}
 	
 	case WM_SIZE:
+	{
 		break;
-
+	}
+	
 	case WM_KEYDOWN:
+	{
+		window->m_msgQueue.AddKeyMessage(static_cast<s8>(wParam), true);
 		break;
-
+	}
+	
 	case WM_KEYUP:
+	{
+		window->m_msgQueue.AddKeyMessage(static_cast<s8>(wParam), false);
 		break;
+	}
 	}
 	return DefWindowProc(handle, message, wParam, lParam);
 }

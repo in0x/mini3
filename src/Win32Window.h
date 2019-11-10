@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Win32.h"
+#include "InputMessageQueue.h"
 
 class BaseApp;
 struct WindowConfig;
@@ -8,11 +8,10 @@ struct WindowConfig;
 struct Win32Window
 {
 public:
-	bool Init(WindowConfig const& config, BaseApp* window);
-	void Run();
+	bool Init(WindowConfig const& config);
+	bool Run();
 	void Exit();
 
-private:
-	HWND m_mainWindowHandle;
-	BaseApp* m_app;
+	ThreadSafeInputMessageQueue m_msgQueue;
+	void* m_mainWindowHandle;
 };

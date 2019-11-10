@@ -147,17 +147,22 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="../src/main.cpp" />
+    <ClCompile Include="..\src\Core.cpp" />
     <ClCompile Include="..\src\DeviceResources.cpp" />
+    <ClCompile Include="..\src\FrameTimer.cpp" />
     <ClCompile Include="..\src\MiniApp.cpp" />
     <ClCompile Include="..\src\Win32Window.cpp" />
     <ClCompile Include="..\src\BaseApp.cpp" />
     <ClCompile Include="..\src\Win32.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="..\src\Array.h" />
     <ClInclude Include="..\src\d3dx12.h" />
     <ClInclude Include="..\src\Core.h" />
     <ClInclude Include="..\src\DeviceResources.h" />
+    <ClInclude Include="..\src\InputMessageQueue.h" />
     <ClInclude Include="..\src\MiniApp.h" />
+    <ClInclude Include="..\src\FrameTimer.h" />
     <ClInclude Include="..\src\Win32Window.h" />
     <ClInclude Include="..\src\BaseApp.h" />
     <ClInclude Include="..\src\Win32.h" />

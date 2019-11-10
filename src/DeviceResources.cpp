@@ -4,7 +4,7 @@
 void DeviceResources::Flush()
 {
 	// Prepare to render the next frame.
-	uint64_t currentFenceValue = GetCurrentFenceValue();
+	u64 currentFenceValue = GetCurrentFenceValue();
 	ID3D12Fence* fence = GetFence();
 	HANDLE fenceEvent = GetFenceEvent();
 
@@ -54,7 +54,7 @@ IDXGIAdapter1* getFirstAvailableHardwareAdapter(ComPtr<IDXGIFactory4> dxgiFactor
 {
 	ComPtr<IDXGIAdapter1> adapter;
 
-	uint32_t adapterIndex = 0;
+	u32 adapterIndex = 0;
 	HRESULT getAdapterResult = S_OK;
 
 	while (getAdapterResult != DXGI_ERROR_NOT_FOUND)
@@ -62,8 +62,9 @@ IDXGIAdapter1* getFirstAvailableHardwareAdapter(ComPtr<IDXGIFactory4> dxgiFactor
 		getAdapterResult = dxgiFactory->EnumAdapters1(adapterIndex, adapter.ReleaseAndGetAddressOf());
 
 
-		DXGI_ADAPTER_DESC1 desc;
-		ASSERT_RESULT(adapter->GetDesc1(&desc));
+		DXGI_ADAPTER_DESC1 desc = {};
+		HRESULT hr = adapter->GetDesc1(&desc);
+		ASSERT_RESULT(hr);
 
 		if (desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE)
 		{
@@ -96,7 +97,7 @@ IDXGIAdapter1* getFirstAvailableHardwareAdapter(ComPtr<IDXGIFactory4> dxgiFactor
 	return adapter.Detach();
 }
 
-void DeviceResources::Init(HWND window, uint32_t initFlags)
+void DeviceResources::Init(HWND window, u32 initFlags)
 {
 	const bool bEnableDebugLayer = initFlags & IF_EnableDebugLayer;
 	const bool bWantAllowTearing = initFlags & IF_AllowTearing;
@@ -160,7 +161,7 @@ DXGI_FORMAT formatSrgbToLinear(DXGI_FORMAT fmt)
 	}
 }
 
-void DeviceResources::resizeSwapChain(uint32_t width, uint32_t height, DXGI_FORMAT format)
+void DeviceResources::resizeSwapChain(u32 width, u32 height, DXGI_FORMAT format)
 {
 	HRESULT hr = m_swapChain->ResizeBuffers(
 		m_backBufferCount,
@@ -179,7 +180,7 @@ void DeviceResources::resizeSwapChain(uint32_t width, uint32_t height, DXGI_FORM
 	}
 }
 
-void DeviceResources::createSwapChain(uint32_t width, uint32_t height, DXGI_FORMAT format)
+void DeviceResources::createSwapChain(u32 width, u32 height, DXGI_FORMAT format)
 {
 
 	// Create a descriptor for the swap chain.
@@ -234,10 +235,12 @@ void DeviceResources::updateColorSpace()
 	ASSERT_RESULT(hr);
 
 	ComPtr<IDXGIOutput6> output6;
-	ASSERT_RESULT(output.As(&output6));
+	hr = output.As(&output6);
+	ASSERT_RESULT(hr);
 
-	DXGI_OUTPUT_DESC1 desc;
-	ASSERT_RESULT(output6->GetDesc1(&desc));
+	DXGI_OUTPUT_DESC1 desc = {};
+	hr = output6->GetDesc1(&desc);
+	ASSERT_RESULT(hr);
 
 	bIsDisplayHDR10 = desc.ColorSpace == DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020;
 #endif
@@ -269,7 +272,7 @@ void DeviceResources::updateColorSpace()
 
 	m_colorSpace = colorSpace;
 
-	uint32_t colorSpaceSupport = 0;
+	u32 colorSpaceSupport = 0;
 	hr = m_swapChain->CheckColorSpaceSupport(colorSpace, &colorSpaceSupport);
 
 	if (SUCCEEDED(hr) && (colorSpaceSupport & DXGI_SWAP_CHAIN_COLOR_SPACE_SUPPORT_FLAG_PRESENT))
@@ -285,14 +288,14 @@ void DeviceResources::initWindowSizeDependent()
 	ASSERT(m_window);
 
 	// Release resources that are tied to the swap chain and update fence values.
-	for (uint32_t n = 0; n < m_backBufferCount; n++)
+	for (u32 n = 0; n < m_backBufferCount; n++)
 	{
 		m_renderTargets[n].Reset();
 		m_fenceValues[n] = m_fenceValues[m_frameIndex];
 	}
 
-	const uint32_t backBufferWidth = max(static_cast<uint32_t>(m_outputSize.right - m_outputSize.left), 1u);
-	const uint32_t backBufferHeight = max(static_cast<uint32_t>(m_outputSize.bottom - m_outputSize.top), 1u);
+	const u32 backBufferWidth = max(static_cast<u32>(m_outputSize.right - m_outputSize.left), 1u);
+	const u32 backBufferHeight = max(static_cast<u32>(m_outputSize.bottom - m_outputSize.top), 1u);
 	const DXGI_FORMAT backBufferFormat = formatSrgbToLinear(m_backBufferFormat);
 
 	// If the swap chain already exists, resize it, otherwise create one.
@@ -319,8 +322,8 @@ void DeviceResources::initWindowSizeDependent()
 
 	// Set the 3D rendering viewport and scissor rectangle to target the entire window.
 	m_screenViewport.TopLeftX = m_screenViewport.TopLeftY = 0.f;
-	m_screenViewport.Width = static_cast<float>(backBufferWidth);
-	m_screenViewport.Height = static_cast<float>(backBufferHeight);
+	m_screenViewport.Width = static_cast<f32>(backBufferWidth);
+	m_screenViewport.Height = static_cast<f32>(backBufferHeight);
 	m_screenViewport.MinDepth = D3D12_MIN_DEPTH;
 	m_screenViewport.MaxDepth = D3D12_MAX_DEPTH;
 
@@ -331,7 +334,11 @@ void DeviceResources::initWindowSizeDependent()
 
 void DeviceResources::createBackBuffers()
 {
-	for (uint32_t i = 0; i < m_backBufferCount; i++)
+	D3D12_RENDER_TARGET_VIEW_DESC rtvDesc = {};
+	rtvDesc.Format = m_backBufferFormat;
+	rtvDesc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D;
+
+	for (u32 i = 0; i < m_backBufferCount; i++)
 	{
 		HRESULT hr = m_swapChain->GetBuffer(i, IID_PPV_ARGS(m_renderTargets[i].GetAddressOf()));
 		ASSERT_RESULT(hr);
@@ -340,16 +347,12 @@ void DeviceResources::createBackBuffers()
 		swprintf_s(name, L"Render target %d", i);
 		m_renderTargets[i]->SetName(name);
 
-		D3D12_RENDER_TARGET_VIEW_DESC rtvDesc = {};
-		rtvDesc.Format = m_backBufferFormat;
-		rtvDesc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D;
-
 		CD3DX12_CPU_DESCRIPTOR_HANDLE rtvDescriptor(m_rtvDescriptorHeap->GetCPUDescriptorHandleForHeapStart(), i, static_cast<UINT>(m_rtvDescriptorSize));
 		m_d3dDevice->CreateRenderTargetView(m_renderTargets[i].Get(), &rtvDesc, rtvDescriptor);
 	}
 }
 
-void DeviceResources::createDepthBuffer(uint32_t width, uint32_t height)
+void DeviceResources::createDepthBuffer(u32 width, u32 height)
 {
 
 	// Allocate a 2-D surface as the depth/stencil buffer and create a depth/stencil view
@@ -535,7 +538,7 @@ void DeviceResources::createDescriptorHeaps()
 
 void DeviceResources::createCommandAllocators()
 {
-	for (uint32_t n = 0; n < m_backBufferCount; n++)
+	for (u32 n = 0; n < m_backBufferCount; n++)
 	{
 		HRESULT createdAllocator = m_d3dDevice->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(m_commandAllocators[n].ReleaseAndGetAddressOf()));
 		ASSERT_RESULT(createdAllocator);
@@ -556,7 +559,8 @@ void DeviceResources::createCommandList()
 		IID_PPV_ARGS(m_commandList.ReleaseAndGetAddressOf()));
 
 	ASSERT_RESULT(cmdListCreated);
-	ASSERT_RESULT(m_commandList->Close());
+	HRESULT closed = m_commandList->Close();
+	ASSERT_RESULT(closed);
 
 	m_commandList->SetName(L"DeviceResources");
 }

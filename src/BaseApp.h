@@ -1,35 +1,54 @@
 #pragma once
 #include <stdint.h>
+#include "Core.h"
+#include "FrameTimer.h"
 
 struct WindowConfig
 {
-	uint32_t width;
-	uint32_t height;
-	uint32_t left;
-	uint32_t top;
+	u32 width;
+	u32 height;
+	u32 left;
+	u32 top;
 	const char* title;
 	bool bFullscreen;
 	bool bAutoShow;
 };
 
+class IMessageQueueConsumer;
+
 class BaseApp
 {
 public:
-	virtual void Init() = 0;
-	virtual void Update() = 0;
-	virtual void Render() = 0;
-	virtual void Exit() = 0;
+	BaseApp();
 
-	virtual void OnKeyDown(uint8_t key) {}
-	virtual void OnKeyUp(uint8_t key) {}
-
-	//virtual void OnMouseDown(WPARAM btnState, int32_t x, int32_t y) {}
-	//virtual void OnMouseUp(WPARAM btnState, int32_t x, int32_t y) {}
-	//virtual void OnMouseMove(WPARAM btnState, int32_t x, int32_t y) {}
+	virtual void Init();
+	virtual bool Update();
+	virtual void Exit();
 
 	void SetNativeHandle(void* nativeHandle);
 	void* GetNativeHandle();
 
+	void SetMessageQueue(IMessageQueueConsumer* queue);
+
+	// Returns whether the stats where refreshed since the last read.
+	bool GetStats(f32& outAvgFps, f32& outAvgMsPerFrame);
+
+protected:
+	FrameTimer m_timer;
+	IMessageQueueConsumer* m_msgQueue;
+
 private:
-	void* m_NativeHandle;
+	struct
+	{
+		f32 counter;
+		f32 elapsedTime;
+		f32 avgFps;
+		f32 avgMs;
+		bool m_bStatsRefreshed;
+	} m_frameStats = { 0 };
+
+	void UpdateFrameStats();
+	
+	void* m_nativeHandle;
+	bool m_bIsPaused;
 };

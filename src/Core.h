@@ -5,6 +5,19 @@
 #include <stdint.h>
 #include <stdarg.h>
 
+typedef uint8_t   u8;
+typedef uint16_t u16;
+typedef uint32_t u32;
+typedef uint64_t u64;
+
+typedef int8_t   s8;
+typedef int16_t s16;
+typedef int32_t s32;
+typedef int64_t s64;
+
+typedef float f32;
+typedef double f64;
+
 static constexpr size_t MAX_DEBUG_MSG_SIZE = 1024;
 static char g_debugFmtBuffer[MAX_DEBUG_MSG_SIZE];
 static char g_debugMsgBuffer[MAX_DEBUG_MSG_SIZE];
@@ -32,8 +45,10 @@ inline int miniFmtDebugMsg(char* buffer, size_t bufferLen, const char *fmt, ...)
 	return retval;
 }
 
+void DebugPrintf(char const* buffer);
+
 #ifdef _DEBUG
-#define LOG(format, ...) _snprintf_s(g_debugMsgBuffer, MAX_DEBUG_MSG_SIZE, format, __VA_ARGS__); OutputDebugString(g_debugMsgBuffer); OutputDebugString("\n") 
+#define LOG(format, ...) _snprintf_s(g_debugMsgBuffer, MAX_DEBUG_MSG_SIZE, format, __VA_ARGS__); DebugPrintf(g_debugMsgBuffer); 
 #else
 #define LOG(format, ...)
 #endif
@@ -46,8 +61,8 @@ inline int miniFmtDebugMsg(char* buffer, size_t bufferLen, const char *fmt, ...)
 #else
 #define ASSERT(x) 
 #define ASSERT_F(x, format, ...)  
-#define ASSERT_RESULT(hr) 
-#define ASSERT_RESULT_F(hr, format, ...) 
+#define ASSERT_RESULT(hr)
+#define ASSERT_RESULT_F(hr, format, ...)
 #endif
 
 #define UNUSED(x) (void)(x)

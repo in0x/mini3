@@ -2,21 +2,22 @@
 
 #include "Win32.h"
 #include "DeviceResources.h"
+#include "InputMessageQueue.h"
 
 void MiniApp::Init()
 {
+	__super::Init();
+
 	m_resources = new DeviceResources();
 
 	HWND windowHandle = static_cast<HWND>(GetNativeHandle());
 	m_resources->Init(windowHandle, DeviceResources::IF_EnableDebugLayer | DeviceResources::IF_AllowTearing);
 }
 
-void MiniApp::Update()
+bool MiniApp::Update()
 {
-}
+	__super::Update();
 
-void MiniApp::Render()
-{
 	ComPtr<ID3D12CommandAllocator> allocator = m_resources->GetCommandAllocator();
 	ComPtr<ID3D12GraphicsCommandList> cmdlist = m_resources->GetCommandList();
 	ComPtr<ID3D12CommandQueue> cmdqueue = m_resources->GetCommandQueue();
@@ -38,7 +39,7 @@ void MiniApp::Render()
 
 	// Clear the backbuffer and views. 
 	{
-		float const blueViolet[4] = { 0.541176498f, 0.168627456f, 0.886274576f, 1.000000000f };
+		f32 const blueViolet[4] = { 0.541176498f, 0.168627456f, 0.886274576f, 1.000000000f };
 
 		CD3DX12_CPU_DESCRIPTOR_HANDLE rtvDescriptor = m_resources->GetRenderTargetView();
 		CD3DX12_CPU_DESCRIPTOR_HANDLE dsvDescriptor = m_resources->GetDepthStencilView();
@@ -101,7 +102,14 @@ void MiniApp::Render()
 	}
 
 	m_resources->Flush();
+
+	InputMessages input = m_msgQueue->PumpMessages();
+	return !input.m_bWantsToQuit;
 }
 
 void MiniApp::Exit()
-{}
+{
+	__super::Exit();
+
+	m_resources->Flush();
+}
