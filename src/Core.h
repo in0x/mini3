@@ -19,36 +19,35 @@ typedef float f32;
 typedef double f64;
 
 static constexpr size_t MAX_DEBUG_MSG_SIZE = 1024;
-static char g_debugFmtBuffer[MAX_DEBUG_MSG_SIZE];
-static char g_debugMsgBuffer[MAX_DEBUG_MSG_SIZE];
+thread_local static char g_debugFmtBuffer[MAX_DEBUG_MSG_SIZE];
+thread_local static char g_debugMsgBuffer[MAX_DEBUG_MSG_SIZE];
 
-inline int miniFmtDebugMsg(char* buffer, size_t bufferLen, const char *fmt, ...)
+inline int MiniPrintf(char* buffer, size_t bufferLen, const char *fmt, ...)
 {
 	va_list ap;
-	int retval;
 
 	va_start(ap, fmt);
-	retval = sprintf_s(buffer, bufferLen, fmt, ap);
+	int lastWritePos = vsnprintf_s(buffer, bufferLen, _TRUNCATE, fmt, ap);
 	va_end(ap);
 
-	if (retval < bufferLen)
-	{
-		buffer[retval + 1] = '\n';
-		buffer[retval + 2] = '\0';
-	}
-	else
+	if (lastWritePos < 0 || lastWritePos == bufferLen)
 	{
 		buffer[bufferLen - 2] = '\n';
 		buffer[bufferLen - 1] = '\0';
 	}
+	else if (lastWritePos < bufferLen)
+	{
+		buffer[lastWritePos + 0] = '\n';
+		buffer[lastWritePos + 1] = '\0';
+	}
 
-	return retval;
+	return lastWritePos;
 }
 
 void DebugPrintf(char const* buffer);
 
 #ifdef _DEBUG
-#define LOG(format, ...) _snprintf_s(g_debugMsgBuffer, MAX_DEBUG_MSG_SIZE, format, __VA_ARGS__); DebugPrintf(g_debugMsgBuffer); 
+#define LOG(format, ...) MiniPrintf(g_debugMsgBuffer, MAX_DEBUG_MSG_SIZE, format, __VA_ARGS__); DebugPrintf(g_debugMsgBuffer); 
 #else
 #define LOG(format, ...)
 #endif

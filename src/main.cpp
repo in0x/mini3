@@ -4,7 +4,6 @@
 #include "Win32Window.h"
 #include "MiniApp.h"
 #include <thread>
-#include <string>
 
 void AppthreadMain(BaseApp* app)
 {
@@ -44,20 +43,18 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR lpCmdLine, INT nC
 	// We run the app on the "App" thread to avoid blocking during message pump.
 	std::thread appthread(AppthreadMain, &app);
 
+	size_t const windowTitleLength = 128;
+	char windowTitle[128] = {0};
+
 	// We run the Win32Window on our "main/UI" thread.
 	while (window.Run())
 	{
 		f32 avgFps, avgMs;
 		if (app.GetStats(avgFps, avgMs))
 		{
-			std::string fpsStr = std::to_string(avgFps);
-			std::string mspfStr = std::to_string(avgMs);
+			MiniPrintf(windowTitle, windowTitleLength, "%s - %f fps | %f.2 ms/frame", config.title, avgFps, avgMs);
 
-			std::string windowText = config.title;
-			windowText += "    fps: " + fpsStr;
-			windowText += "   ms/frame: " + mspfStr;
-
-			SetWindowText((HWND)window.m_mainWindowHandle, windowText.c_str());
+			SetWindowText((HWND)window.m_mainWindowHandle, windowTitle);
 		}
 	}
 
