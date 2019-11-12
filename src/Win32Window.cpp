@@ -21,7 +21,7 @@ static ATOM RegisterWindowClass(char const* className, WNDPROC eventCb)
 
 	if (!IsWindowClassValid(classHandle))
 	{
-		LOG("Failed to register window class type %s!\n", className);
+		LOG(Log::Win32, "Failed to register window class type %s!\n", className);
 		LogLastWindowsError();
 	}
 
@@ -59,7 +59,7 @@ bool Win32Window::Init(WindowConfig const& config)
 
 		if (ChangeDisplaySettings(&displayConfig, CDS_FULLSCREEN) != DISP_CHANGE_SUCCESSFUL)
 		{
-			LOG("Failed to fullscreen the window.\n");
+			LOG(Log::Win32, "Failed to fullscreen the window.\n");
 			return false;
 		}
 
@@ -100,7 +100,7 @@ bool Win32Window::Init(WindowConfig const& config)
 
 	UpdateWindow((HWND)m_mainWindowHandle);
 	
-	LOG("Created window TITLE: %s WIDTH: %u HEIGHT: %u FULLSCREEN: %d", config.title, config.width, config.height, static_cast<s32>(config.bFullscreen));
+	LOG(Log::Win32, "Created window TITLE: %s WIDTH: %u HEIGHT: %u FULLSCREEN: %d", config.title, config.width, config.height, static_cast<s32>(config.bFullscreen));
 
 	return m_mainWindowHandle != nullptr;
 }
@@ -130,9 +130,6 @@ void Win32Window::Exit()
 
 static LRESULT CALLBACK OnMainWindowEvent(HWND handle, UINT message, WPARAM wParam, LPARAM lParam)
 {
-	// TODO(pw): We should buffer all of this and run the main app on another thread.
-	// Then at fixed points pump this to the window.
-
 	// WPARAM -> Word parameter, carries "words" i.e. handle, integers
 	// LAPARM -> Long paramter -> carries pointers
 

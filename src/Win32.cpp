@@ -17,11 +17,11 @@ void LogLastWindowsError()
 
 	if (errorText != nullptr)
 	{
-		LOG("%s", errorText);
+		LOG(Log::Win32, "%s", errorText);
 		LocalFree(errorText);
 	}
 	else
 	{
-		LOG("Failed to get message for last windows error %u", static_cast<uint32_t>(lastError));
+		LOG(Log::Win32, "Failed to get message for last windows error %u", static_cast<uint32_t>(lastError));
 	}
 }

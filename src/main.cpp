@@ -21,7 +21,7 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR lpCmdLine, INT nC
 	UNUSED(lpCmdLine);
 	UNUSED(nCmdShow);
 
-	LOG("Initializing mini3");
+	LOG(Log::Default, "Initializing mini3");
 
 	WindowConfig config;
 	config.width = 800;
@@ -52,7 +52,7 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR lpCmdLine, INT nC
 		f32 avgFps, avgMs;
 		if (app.GetStats(avgFps, avgMs))
 		{
-			MiniPrintf(windowTitle, windowTitleLength, "%s - %f fps | %f.2 ms/frame", config.title, avgFps, avgMs);
+			MiniPrintf(windowTitle, windowTitleLength, "%s - %f fps | %f.2 ms/frame", false, config.title, avgFps, avgMs);
 
 			SetWindowText((HWND)window.m_mainWindowHandle, windowTitle);
 		}

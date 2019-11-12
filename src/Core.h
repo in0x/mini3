@@ -22,39 +22,42 @@ static constexpr size_t MAX_DEBUG_MSG_SIZE = 1024;
 thread_local static char g_debugFmtBuffer[MAX_DEBUG_MSG_SIZE];
 thread_local static char g_debugMsgBuffer[MAX_DEBUG_MSG_SIZE];
 
-inline int MiniPrintf(char* buffer, size_t bufferLen, const char *fmt, ...)
+// Returns the position the null terminator was written to.
+int MiniPrintf(char* buffer, size_t bufferLen, const char *fmt, bool appendNewline, ...);
+
+struct Log
 {
-	va_list ap;
-
-	va_start(ap, fmt);
-	int lastWritePos = vsnprintf_s(buffer, bufferLen, _TRUNCATE, fmt, ap);
-	va_end(ap);
-
-	if (lastWritePos < 0 || lastWritePos == bufferLen)
+	enum Category
 	{
-		buffer[bufferLen - 2] = '\n';
-		buffer[bufferLen - 1] = '\0';
-	}
-	else if (lastWritePos < bufferLen)
+		Default,
+		Assert,
+		GfxDevice,
+		Win32,
+
+		EnumCount,
+		EnumFirst = Default,
+	};
+
+	static constexpr char* CategoryStrings[Category::EnumCount] = 
 	{
-		buffer[lastWritePos + 0] = '\n';
-		buffer[lastWritePos + 1] = '\0';
-	}
+		"Default",
+		"ASSERT",
+		"GfxDevice",
+		"Win32",
+	};
+};
 
-	return lastWritePos;
-}
-
-void DebugPrintf(char const* buffer);
+void DebugPrintf(char const* file, int line, char const* fmt, Log::Category category, ...);
 
 #ifdef _DEBUG
-#define LOG(format, ...) MiniPrintf(g_debugMsgBuffer, MAX_DEBUG_MSG_SIZE, format, __VA_ARGS__); DebugPrintf(g_debugMsgBuffer); 
+#define LOG(category, format, ...) DebugPrintf(__FILE__, __LINE__, format, category, __VA_ARGS__); 
 #else
 #define LOG(format, ...)
 #endif
 
 #ifdef _DEBUG
 #define ASSERT(x) assert(x)
-#define ASSERT_F(x, format, ...) if (!(x)) { LOG(format, __VA_ARGS__); assert(x); }
+#define ASSERT_F(x, format, ...) if (!(x)) { LOG(Log::Assert, format, __VA_ARGS__); assert(x); }
 #define ASSERT_RESULT(hr) assert(SUCCEEDED(hr))
 #define ASSERT_RESULT_F(hr, format, ...) ASSERT_F(SUCCEEDED(hr), format, __VA_ARGS__)
 #else

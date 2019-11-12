@@ -75,7 +75,7 @@ IDXGIAdapter1* getFirstAvailableHardwareAdapter(ComPtr<IDXGIFactory4> dxgiFactor
 		// Check to see if the adapter supports Direct3D 12, but don't create the actual device yet.
 		if (SUCCEEDED(D3D12CreateDevice(adapter.Get(), minFeatureLevel, _uuidof(ID3D12Device), nullptr)))
 		{
-			LOG("Direct3D Adapter (%u): VID:%04X, PID:%04X - %ls\n", adapterIndex, desc.VendorId, desc.DeviceId, desc.Description);
+			LOG(Log::GfxDevice, "Direct3D Adapter (%u): VID:%04X, PID:%04X - %ls\n", adapterIndex, desc.VendorId, desc.DeviceId, desc.Description);
 			break;
 		}
 
@@ -90,7 +90,7 @@ IDXGIAdapter1* getFirstAvailableHardwareAdapter(ComPtr<IDXGIFactory4> dxgiFactor
 			ASSERT_F(false, "WARP12 not available. Enable the 'Graphics Tools' optional feature");
 		}
 
-		LOG("Direct3D Adapter - WARP12\n");
+		LOG(Log::GfxDevice, "Direct3D Adapter - WARP12\n");
 	}
 
 	ASSERT_F(adapter != nullptr, "No Direct3D 12 device found");
@@ -402,7 +402,7 @@ void DeviceResources::enableDebugLayer()
 	}
 	else
 	{
-		LOG("WARNING: Direct3D Debug Device is not available\n");
+		LOG(Log::GfxDevice, "WARNING: Direct3D Debug Device is not available\n");
 	}
 
 	ComPtr<IDXGIInfoQueue> dxgiInfoQueue;
@@ -430,7 +430,7 @@ bool DeviceResources::checkTearingSupport()
 
 	if (!bAllowTearing)
 	{
-		LOG("Variable refresh rate displays not supported");
+		LOG(Log::GfxDevice, "Variable refresh rate displays not supported");
 	}
 
 	return bAllowTearing;
