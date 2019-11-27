@@ -1,6 +1,104 @@
 #include "DeviceResources.h"
 #include "Core.h"
 
+void DeviceResources::BeginPresent()
+{
+	ComPtr<ID3D12CommandAllocator> allocator = GetCommandAllocator();
+	ComPtr<ID3D12GraphicsCommandList> cmdlist = GetCommandList();
+	ComPtr<ID3D12CommandQueue> cmdqueue = GetCommandQueue();
+	ComPtr<IDXGISwapChain3> swapchain = GetSwapChain();
+
+	HRESULT hr = allocator->Reset();
+	ASSERT_RESULT(hr);
+
+	hr = cmdlist->Reset(allocator.Get(), nullptr);
+	ASSERT_RESULT(hr);
+
+	// Transition the render target into the correct state to allow for drawing into it.
+	{
+		D3D12_RESOURCE_BARRIER barrier = CD3DX12_RESOURCE_BARRIER::Transition(
+			GetCurrentRenderTarget(),
+			D3D12_RESOURCE_STATE_PRESENT,
+			D3D12_RESOURCE_STATE_RENDER_TARGET
+		);
+
+		cmdlist->ResourceBarrier(1, &barrier);
+	}
+
+	// Clear the backbuffer and views. 
+	{
+		f32 const blueViolet[4] = { 0.541176498f, 0.168627456f, 0.886274576f, 1.000000000f };
+
+		CD3DX12_CPU_DESCRIPTOR_HANDLE rtvDescriptor = GetRenderTargetView();
+		CD3DX12_CPU_DESCRIPTOR_HANDLE dsvDescriptor = GetDepthStencilView();
+
+		cmdlist->OMSetRenderTargets(1, &rtvDescriptor, FALSE, &dsvDescriptor); // todo: do we need this?
+		cmdlist->ClearRenderTargetView(rtvDescriptor, blueViolet, 0, nullptr);
+		cmdlist->ClearDepthStencilView(dsvDescriptor, D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, 0, nullptr);
+	}
+
+	// Set the viewport and scissor rect.
+	{
+		D3D12_VIEWPORT viewport = GetScreenViewport();
+		D3D12_RECT scissorRect = GetScissorRect();
+		cmdlist->RSSetViewports(1, &viewport);
+		cmdlist->RSSetScissorRects(1, &scissorRect);
+	}
+
+	// Transition the render target to the state that allows it to be presented to the display.
+	{
+		D3D12_RESOURCE_BARRIER barrier = CD3DX12_RESOURCE_BARRIER::Transition(
+			GetCurrentRenderTarget(),
+			D3D12_RESOURCE_STATE_RENDER_TARGET,
+			D3D12_RESOURCE_STATE_PRESENT
+		);
+
+		cmdlist->ResourceBarrier(1, &barrier);
+	}
+}
+
+void DeviceResources::EndPresent()
+{
+	ComPtr<ID3D12GraphicsCommandList> cmdlist = GetCommandList();
+	ComPtr<ID3D12CommandQueue> cmdqueue = GetCommandQueue();
+	ComPtr<IDXGISwapChain3> swapchain = GetSwapChain();
+
+	// Send the command list off to the GPU for processing.
+	HRESULT hr = cmdlist->Close();
+	ASSERT_RESULT(hr);
+
+	ID3D12CommandList* ppCommandLists[] = { cmdlist.Get() };
+	cmdqueue->ExecuteCommandLists(_countof(ppCommandLists), ppCommandLists);
+
+	if (IsTearingAllowed())
+	{
+		// Recommended to always use tearing if supported when using a sync interval of 0.
+		// Note this will fail if in true 'fullscreen' mode.
+		hr = swapchain->Present(0, DXGI_PRESENT_ALLOW_TEARING);
+	}
+	else
+	{
+		// The first argument instructs DXGI to block until VSync, putting the application
+		// to sleep until the next VSync. This ensures we don't waste any cycles rendering
+		// frames that will never be displayed to the screen.
+		hr = swapchain->Present(1, 0);
+	}
+
+	// If the device was reset we must completely reinitialize the renderer.
+	if (hr == DXGI_ERROR_DEVICE_REMOVED || hr == DXGI_ERROR_DEVICE_RESET)
+	{
+		HRESULT removedReason = (hr == DXGI_ERROR_DEVICE_REMOVED) ? GetD3DDevice()->GetDeviceRemovedReason() : hr;
+		ASSERT_FAIL_F("Device Lost on ResizeBuffers: Reason code 0x%08X\n", removedReason);
+
+	}
+	else
+	{
+		ASSERT_RESULT(hr);
+	}
+
+	Flush();
+}
+
 void DeviceResources::Flush()
 {
 	// Prepare to render the next frame.
@@ -75,7 +173,15 @@ IDXGIAdapter1* getFirstAvailableHardwareAdapter(ComPtr<IDXGIFactory4> dxgiFactor
 		// Check to see if the adapter supports Direct3D 12, but don't create the actual device yet.
 		if (SUCCEEDED(D3D12CreateDevice(adapter.Get(), minFeatureLevel, _uuidof(ID3D12Device), nullptr)))
 		{
-			LOG(Log::GfxDevice, "Direct3D Adapter (%u): VID:%04X, PID:%04X - %ls\n", adapterIndex, desc.VendorId, desc.DeviceId, desc.Description);
+			LOG(Log::GfxDevice, "Direct3D Adapter (id: %u) found");
+			LOG(Log::GfxDevice, "Description: %ls", desc.Description);
+			LOG(Log::GfxDevice, "Vendor ID: %u", desc.VendorId);
+			LOG(Log::GfxDevice, "Device ID: %u", desc.DeviceId);
+			LOG(Log::GfxDevice, "SubSys ID: %u", desc.SubSysId);
+			LOG(Log::GfxDevice, "Revision: %u", desc.Revision);
+			LOG(Log::GfxDevice, "Dedicated Video Memory: %llu MB", BytesToMegaBytes(desc.DedicatedVideoMemory));
+			LOG(Log::GfxDevice, "Dedicated System Memory: %llu MB", BytesToMegaBytes(desc.DedicatedSystemMemory));
+			LOG(Log::GfxDevice, "Shared System Memory: %llu MB", BytesToMegaBytes(desc.SharedSystemMemory));
 			break;
 		}
 
@@ -97,13 +203,13 @@ IDXGIAdapter1* getFirstAvailableHardwareAdapter(ComPtr<IDXGIFactory4> dxgiFactor
 	return adapter.Detach();
 }
 
-void DeviceResources::Init(HWND window, u32 initFlags)
+void DeviceResources::Init(void* windowHandle, u32 initFlags)
 {
 	const bool bEnableDebugLayer = initFlags & IF_EnableDebugLayer;
 	const bool bWantAllowTearing = initFlags & IF_AllowTearing;
 	bool bAllowTearing = bWantAllowTearing;
 
-	m_window = window;
+	m_window = static_cast<HWND>(windowHandle);
 
 	m_d3dMinFeatureLevel = D3D_FEATURE_LEVEL_11_0;
 	m_d3dFeatureLevel = D3D_FEATURE_LEVEL_11_0;
@@ -113,7 +219,7 @@ void DeviceResources::Init(HWND window, u32 initFlags)
 
 	m_rtvDescriptorSize = 0;
 	m_backBufferFormat = DXGI_FORMAT_B8G8R8A8_UNORM;
-	m_depthBufferFormat = DXGI_FORMAT_D32_FLOAT;
+	m_depthBufferFormat = DXGI_FORMAT_D24_UNORM_S8_UINT;
 
 	m_dxgiFactoryFlags = 0;
 	m_outputSize = { 0, 0, 1, 1 };

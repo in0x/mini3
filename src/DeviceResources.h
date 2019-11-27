@@ -32,8 +32,11 @@ public:
 		IF_EnableHDR = 1 << 2
 	};
 
-	void Init(HWND window, u32 initFlags);
+	void Init(void* windowHandle, u32 initFlags);
 	bool IsTearingAllowed();
+
+	void BeginPresent();
+	void EndPresent();
 	void Flush();
 
 	inline ID3D12Device*              GetD3DDevice() const { return m_d3dDevice.Get(); }

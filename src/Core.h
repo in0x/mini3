@@ -22,6 +22,21 @@ static constexpr size_t MAX_DEBUG_MSG_SIZE = 1024;
 thread_local static char g_debugFmtBuffer[MAX_DEBUG_MSG_SIZE];
 thread_local static char g_debugMsgBuffer[MAX_DEBUG_MSG_SIZE];
 
+static constexpr size_t BytesToKiloBytes(size_t bytes)
+{
+	return bytes / (1024Ui64);
+}
+
+static constexpr size_t BytesToMegaBytes(size_t bytes)
+{
+	return bytes / (1024Ui64 * 1024Ui64);
+}
+
+static constexpr size_t BytesToGigaBytes(size_t bytes)
+{
+	return bytes / (1024Ui64 * 1024Ui64 * 1024Ui64);
+}
+
 // Returns the position the null terminator was written to.
 int MiniPrintf(char* buffer, size_t bufferLen, const char *fmt, bool appendNewline, ...);
 
@@ -60,11 +75,15 @@ void DebugPrintf(char const* file, int line, char const* fmt, Log::Category cate
 #define ASSERT_F(x, format, ...) if (!(x)) { LOG(Log::Assert, format, __VA_ARGS__); assert(x); }
 #define ASSERT_RESULT(hr) assert(SUCCEEDED(hr))
 #define ASSERT_RESULT_F(hr, format, ...) ASSERT_F(SUCCEEDED(hr), format, __VA_ARGS__)
+#define ASSERT_FAIL() assert(false)
+#define ASSERT_FAIL_F(format, ...) ASSERT_F(false, format, __VA_ARGS__)
 #else
 #define ASSERT(x) 
 #define ASSERT_F(x, format, ...)  
 #define ASSERT_RESULT(hr)
 #define ASSERT_RESULT_F(hr, format, ...)
+#define ASSERT_FAIL()
+#define ASSERT_FAIL_F(format, ...)
 #endif
 
 #define UNUSED(x) (void)(x)
