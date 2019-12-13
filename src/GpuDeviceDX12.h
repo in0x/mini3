@@ -22,7 +22,13 @@ using Microsoft::WRL::ComPtr;
 
 static const u32 MAX_FRAME_COUNT = 2;
 
-class DeviceResources
+struct FenceValues
+{
+	u64 beforeSignal;
+	u64 afterSignal;
+};
+
+class GpuDeviceDX12
 {
 public:
 	enum InitFlags : u32
@@ -38,6 +44,8 @@ public:
 	void BeginPresent();
 	void EndPresent();
 	void Flush();
+	FenceValues Signal(ID3D12CommandQueue* commandQueue, ID3D12Fence* fence, u64 fenceValue);
+	void WaitForFenceValue(ID3D12Fence* fence, uint64_t fenceValue, HANDLE fenceEvent, u32 durationMS = INFINITE);
 
 	inline ID3D12Device*              GetD3DDevice() const { return m_d3dDevice.Get(); }
 	inline IDXGISwapChain3*           GetSwapChain() const { return m_swapChain.Get(); }
@@ -50,10 +58,7 @@ public:
 	inline HANDLE					  GetFenceEvent() { return m_fenceEvent.Get(); }
 	inline D3D12_VIEWPORT             GetScreenViewport() const { return m_screenViewport; }
 	inline D3D12_RECT                 GetScissorRect() const { return m_scissorRect; }
-	inline UINT                       GetCurrentFrameIndex() const { return m_frameIndex; }
-	
-	CD3DX12_CPU_DESCRIPTOR_HANDLE GetRenderTargetView() const;
-	CD3DX12_CPU_DESCRIPTOR_HANDLE GetDepthStencilView() const;
+	inline UINT                       GetCurrentFrameIndex() const { return m_frameIndex; }	
 
 private:
 	void enableDebugLayer();
@@ -72,6 +77,9 @@ private:
 	void updateColorSpace();
 	void createBackBuffers();
 	void createDepthBuffer(u32 width, u32 height);
+
+	CD3DX12_CPU_DESCRIPTOR_HANDLE GetRenderTargetView() const;
+	CD3DX12_CPU_DESCRIPTOR_HANDLE GetDepthStencilView() const;
 
 	u32									m_frameIndex;
 

@@ -1,7 +1,7 @@
 #pragma once
 #include "BaseApp.h"
 
-class DeviceResources;
+class GpuDeviceDX12;
 
 class MiniApp : public BaseApp
 {
@@ -10,5 +10,5 @@ class MiniApp : public BaseApp
 	virtual void Exit() override;
 
 private:
-	DeviceResources* m_resources;
+	GpuDeviceDX12* m_gpuDevice;
 };

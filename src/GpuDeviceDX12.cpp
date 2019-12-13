@@ -1,7 +1,7 @@
-#include "DeviceResources.h"
+#include "GpuDeviceDX12.h"
 #include "Core.h"
 
-void DeviceResources::BeginPresent()
+void GpuDeviceDX12::BeginPresent()
 {
 	ComPtr<ID3D12CommandAllocator> allocator = GetCommandAllocator();
 	ComPtr<ID3D12GraphicsCommandList> cmdlist = GetCommandList();
@@ -57,7 +57,7 @@ void DeviceResources::BeginPresent()
 	}
 }
 
-void DeviceResources::EndPresent()
+void GpuDeviceDX12::EndPresent()
 {
 	ComPtr<ID3D12GraphicsCommandList> cmdlist = GetCommandList();
 	ComPtr<ID3D12CommandQueue> cmdqueue = GetCommandQueue();
@@ -99,49 +99,61 @@ void DeviceResources::EndPresent()
 	Flush();
 }
 
-void DeviceResources::Flush()
+void GpuDeviceDX12::WaitForFenceValue(ID3D12Fence* fence, uint64_t fenceValue, HANDLE fenceEvent, u32 durationMS)
 {
-	// Prepare to render the next frame.
-	u64 currentFenceValue = GetCurrentFenceValue();
-	ID3D12Fence* fence = GetFence();
-	HANDLE fenceEvent = GetFenceEvent();
+	if (fence->GetCompletedValue() < fenceValue)
+	{
+		HRESULT hr = fence->SetEventOnCompletion(fenceValue, fenceEvent);
+		ASSERT_RESULT(hr);
+		WaitForSingleObjectEx(fenceEvent, durationMS, FALSE);
+	}
+}
 
-	HRESULT hr = GetCommandQueue()->Signal(fence, currentFenceValue);
+FenceValues GpuDeviceDX12::Signal(ID3D12CommandQueue* commandQueue, ID3D12Fence* fence, u64 fenceValue)
+{
+	FenceValues fenceValues;
+	fenceValues.beforeSignal = fenceValue;
+	fenceValues.afterSignal = fenceValue + 1;
+
+	HRESULT hr = commandQueue->Signal(fence, fenceValues.beforeSignal);
 	ASSERT_RESULT(hr);
 
-	// WaitForFenceValue.
+	return fenceValues;
+}
+
+void GpuDeviceDX12::Flush()
+{
+	// Prepare to render the next frame.
+	ID3D12Fence* fence = GetFence();
+	FenceValues fenceValues = Signal(GetCommandQueue(), fence, GetCurrentFenceValue());
+
 	// If the next frame is not ready to be rendered yet, wait until it is ready.
-	if (m_fence->GetCompletedValue() < currentFenceValue)
-	{
-		hr = fence->SetEventOnCompletion(currentFenceValue, fenceEvent);
-		ASSERT_RESULT(hr);
-		WaitForSingleObjectEx(fenceEvent, INFINITE, FALSE);
-	}
+	WaitForFenceValue(fence, fenceValues.beforeSignal, GetFenceEvent());
 
 	// Set the fence value for the next frame.
-	m_fenceValues[m_frameIndex] = currentFenceValue + 1;
+	m_fenceValues[m_frameIndex] = fenceValues.afterSignal;
 
 	m_frameIndex = m_swapChain->GetCurrentBackBufferIndex();
 
 	if (!m_dxgiFactory->IsCurrent())
 	{
 		// Output information is cached on the DXGI Factory. If it is stale we need to create a new factory.
-		hr = CreateDXGIFactory2(m_dxgiFactoryFlags, IID_PPV_ARGS(m_dxgiFactory.ReleaseAndGetAddressOf()));
+		HRESULT hr = CreateDXGIFactory2(m_dxgiFactoryFlags, IID_PPV_ARGS(m_dxgiFactory.ReleaseAndGetAddressOf()));
 		ASSERT_RESULT(hr);
 	}
 }
 
-CD3DX12_CPU_DESCRIPTOR_HANDLE DeviceResources::GetRenderTargetView() const
+CD3DX12_CPU_DESCRIPTOR_HANDLE GpuDeviceDX12::GetRenderTargetView() const
 {
 	return CD3DX12_CPU_DESCRIPTOR_HANDLE(m_rtvDescriptorHeap->GetCPUDescriptorHandleForHeapStart(), m_frameIndex, m_rtvDescriptorSize);
 }
 
-CD3DX12_CPU_DESCRIPTOR_HANDLE DeviceResources::GetDepthStencilView() const
+CD3DX12_CPU_DESCRIPTOR_HANDLE GpuDeviceDX12::GetDepthStencilView() const
 {
 	return CD3DX12_CPU_DESCRIPTOR_HANDLE(m_dsvDescriptorHeap->GetCPUDescriptorHandleForHeapStart());
 }
 
-bool DeviceResources::IsTearingAllowed()
+bool GpuDeviceDX12::IsTearingAllowed()
 {
 	return m_initFlags & IF_AllowTearing;
 }
@@ -203,7 +215,7 @@ IDXGIAdapter1* getFirstAvailableHardwareAdapter(ComPtr<IDXGIFactory4> dxgiFactor
 	return adapter.Detach();
 }
 
-void DeviceResources::Init(void* windowHandle, u32 initFlags)
+void GpuDeviceDX12::Init(void* windowHandle, u32 initFlags)
 {
 	const bool bEnableDebugLayer = initFlags & IF_EnableDebugLayer;
 	const bool bWantAllowTearing = initFlags & IF_AllowTearing;
@@ -267,7 +279,7 @@ DXGI_FORMAT formatSrgbToLinear(DXGI_FORMAT fmt)
 	}
 }
 
-void DeviceResources::resizeSwapChain(u32 width, u32 height, DXGI_FORMAT format)
+void GpuDeviceDX12::resizeSwapChain(u32 width, u32 height, DXGI_FORMAT format)
 {
 	HRESULT hr = m_swapChain->ResizeBuffers(
 		m_backBufferCount,
@@ -286,7 +298,7 @@ void DeviceResources::resizeSwapChain(u32 width, u32 height, DXGI_FORMAT format)
 	}
 }
 
-void DeviceResources::createSwapChain(u32 width, u32 height, DXGI_FORMAT format)
+void GpuDeviceDX12::createSwapChain(u32 width, u32 height, DXGI_FORMAT format)
 {
 
 	// Create a descriptor for the swap chain.
@@ -327,7 +339,7 @@ void DeviceResources::createSwapChain(u32 width, u32 height, DXGI_FORMAT format)
 	ASSERT_RESULT(hr);
 }
 
-void DeviceResources::updateColorSpace()
+void GpuDeviceDX12::updateColorSpace()
 {
 	DXGI_COLOR_SPACE_TYPE colorSpace = DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709;
 	bool bIsDisplayHDR10 = false;
@@ -389,7 +401,7 @@ void DeviceResources::updateColorSpace()
 
 }
 
-void DeviceResources::initWindowSizeDependent()
+void GpuDeviceDX12::initWindowSizeDependent()
 {
 	ASSERT(m_window);
 
@@ -438,7 +450,7 @@ void DeviceResources::initWindowSizeDependent()
 	m_scissorRect.bottom = backBufferHeight;
 }
 
-void DeviceResources::createBackBuffers()
+void GpuDeviceDX12::createBackBuffers()
 {
 	D3D12_RENDER_TARGET_VIEW_DESC rtvDesc = {};
 	rtvDesc.Format = m_backBufferFormat;
@@ -458,7 +470,7 @@ void DeviceResources::createBackBuffers()
 	}
 }
 
-void DeviceResources::createDepthBuffer(u32 width, u32 height)
+void GpuDeviceDX12::createDepthBuffer(u32 width, u32 height)
 {
 
 	// Allocate a 2-D surface as the depth/stencil buffer and create a depth/stencil view
@@ -499,7 +511,7 @@ void DeviceResources::createDepthBuffer(u32 width, u32 height)
 	m_d3dDevice->CreateDepthStencilView(m_depthStencil.Get(), &dsvDesc, m_dsvDescriptorHeap->GetCPUDescriptorHandleForHeapStart());
 }
 
-void DeviceResources::enableDebugLayer()
+void GpuDeviceDX12::enableDebugLayer()
 {
 	ComPtr<ID3D12Debug> debugController;
 	if (SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(debugController.GetAddressOf()))))
@@ -521,7 +533,7 @@ void DeviceResources::enableDebugLayer()
 	}
 }
 
-bool DeviceResources::checkTearingSupport()
+bool GpuDeviceDX12::checkTearingSupport()
 {
 	BOOL allowTearing = FALSE;
 	ComPtr<IDXGIFactory5> factory5;
@@ -542,7 +554,7 @@ bool DeviceResources::checkTearingSupport()
 	return bAllowTearing;
 }
 
-void DeviceResources::createDevice(bool bEnableDebugLayer)
+void GpuDeviceDX12::createDevice(bool bEnableDebugLayer)
 {
 	ComPtr<IDXGIAdapter1> adapter;
 	*adapter.GetAddressOf() = getFirstAvailableHardwareAdapter(m_dxgiFactory, m_d3dMinFeatureLevel);
@@ -578,7 +590,7 @@ void DeviceResources::createDevice(bool bEnableDebugLayer)
 	}
 }
 
-void DeviceResources::checkFeatureLevel()
+void GpuDeviceDX12::checkFeatureLevel()
 {
 	// Determine maximum supported feature level for this device
 	static const D3D_FEATURE_LEVEL s_featureLevels[] =
@@ -605,7 +617,7 @@ void DeviceResources::checkFeatureLevel()
 	}
 }
 
-void DeviceResources::createCommandQueue()
+void GpuDeviceDX12::createCommandQueue()
 {
 	D3D12_COMMAND_QUEUE_DESC queueDesc = {};
 	queueDesc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
@@ -617,7 +629,7 @@ void DeviceResources::createCommandQueue()
 	m_commandQueue->SetName(L"DeviceResources");
 }
 
-void DeviceResources::createDescriptorHeaps()
+void GpuDeviceDX12::createDescriptorHeaps()
 {
 	// Render targets
 	D3D12_DESCRIPTOR_HEAP_DESC rtvDescriptorHeapDesc = {};
@@ -642,7 +654,7 @@ void DeviceResources::createDescriptorHeaps()
 	m_dsvDescriptorHeap->SetName(L"DeviceResources");
 }
 
-void DeviceResources::createCommandAllocators()
+void GpuDeviceDX12::createCommandAllocators()
 {
 	for (u32 n = 0; n < m_backBufferCount; n++)
 	{
@@ -655,7 +667,7 @@ void DeviceResources::createCommandAllocators()
 	}
 }
 
-void DeviceResources::createCommandList()
+void GpuDeviceDX12::createCommandList()
 {
 	HRESULT cmdListCreated = m_d3dDevice->CreateCommandList(
 		0,
@@ -671,7 +683,7 @@ void DeviceResources::createCommandList()
 	m_commandList->SetName(L"DeviceResources");
 }
 
-void DeviceResources::createEndOfFrameFence()
+void GpuDeviceDX12::createEndOfFrameFence()
 {
 	// Create a fence for tracking GPU execution progress.
 	HRESULT createdFence = m_d3dDevice->CreateFence(m_fenceValues[m_frameIndex], D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(m_fence.ReleaseAndGetAddressOf()));
