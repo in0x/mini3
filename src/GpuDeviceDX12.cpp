@@ -101,6 +101,8 @@ void GpuDeviceDX12::EndPresent()
 
 void GpuDeviceDX12::WaitForFenceValue(ID3D12Fence* fence, uint64_t fenceValue, HANDLE fenceEvent, u32 durationMS)
 {
+	// TODO(pgPW): Add hang detection here. Set timer, wait interval, if not completed, assert.
+
 	if (fence->GetCompletedValue() < fenceValue)
 	{
 		HRESULT hr = fence->SetEventOnCompletion(fenceValue, fenceEvent);
@@ -109,29 +111,26 @@ void GpuDeviceDX12::WaitForFenceValue(ID3D12Fence* fence, uint64_t fenceValue, H
 	}
 }
 
-FenceValues GpuDeviceDX12::Signal(ID3D12CommandQueue* commandQueue, ID3D12Fence* fence, u64 fenceValue)
-{
-	FenceValues fenceValues;
-	fenceValues.beforeSignal = fenceValue;
-	fenceValues.afterSignal = fenceValue + 1;
-
-	HRESULT hr = commandQueue->Signal(fence, fenceValues.beforeSignal);
+u64 GpuDeviceDX12::Signal(ID3D12CommandQueue* commandQueue, ID3D12Fence* fence, u64 fenceValue)
+{	
+	HRESULT hr = commandQueue->Signal(fence, fenceValue);
 	ASSERT_RESULT(hr);
 
-	return fenceValues;
+	return fenceValue + 1;
 }
 
 void GpuDeviceDX12::Flush()
 {
 	// Prepare to render the next frame.
 	ID3D12Fence* fence = GetFence();
-	FenceValues fenceValues = Signal(GetCommandQueue(), fence, GetCurrentFenceValue());
+	u64 currentFenceValue = GetCurrentFenceValue();
+	u64 nextFenceValue = Signal(GetCommandQueue(), fence, currentFenceValue);
 
 	// If the next frame is not ready to be rendered yet, wait until it is ready.
-	WaitForFenceValue(fence, fenceValues.beforeSignal, GetFenceEvent());
+	WaitForFenceValue(fence, currentFenceValue, GetFenceEvent());
 
 	// Set the fence value for the next frame.
-	m_fenceValues[m_frameIndex] = fenceValues.afterSignal;
+	m_fenceValue = nextFenceValue;
 
 	m_frameIndex = m_swapChain->GetCurrentBackBufferIndex();
 
@@ -236,6 +235,8 @@ void GpuDeviceDX12::Init(void* windowHandle, u32 initFlags)
 	m_dxgiFactoryFlags = 0;
 	m_outputSize = { 0, 0, 1, 1 };
 	m_colorSpace = DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709;
+
+	m_fenceValue = 0;
 
 	if (bEnableDebugLayer)
 	{
@@ -409,7 +410,6 @@ void GpuDeviceDX12::initWindowSizeDependent()
 	for (u32 n = 0; n < m_backBufferCount; n++)
 	{
 		m_renderTargets[n].Reset();
-		m_fenceValues[n] = m_fenceValues[m_frameIndex];
 	}
 
 	const u32 backBufferWidth = max(static_cast<u32>(m_outputSize.right - m_outputSize.left), 1u);
@@ -686,10 +686,8 @@ void GpuDeviceDX12::createCommandList()
 void GpuDeviceDX12::createEndOfFrameFence()
 {
 	// Create a fence for tracking GPU execution progress.
-	HRESULT createdFence = m_d3dDevice->CreateFence(m_fenceValues[m_frameIndex], D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(m_fence.ReleaseAndGetAddressOf()));
+	HRESULT createdFence = m_d3dDevice->CreateFence(m_fenceValue, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(m_fence.ReleaseAndGetAddressOf()));
 	ASSERT_RESULT(createdFence);
-	m_fenceValues[m_frameIndex]++;
-
 	m_fence->SetName(L"DeviceResources");
 
 	m_fenceEvent.Attach(CreateEvent(nullptr, FALSE, FALSE, nullptr));

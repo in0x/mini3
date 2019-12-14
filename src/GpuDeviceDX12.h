@@ -22,12 +22,6 @@ using Microsoft::WRL::ComPtr;
 
 static const u32 MAX_FRAME_COUNT = 2;
 
-struct FenceValues
-{
-	u64 beforeSignal;
-	u64 afterSignal;
-};
-
 class GpuDeviceDX12
 {
 public:
@@ -44,12 +38,12 @@ public:
 	void BeginPresent();
 	void EndPresent();
 	void Flush();
-	FenceValues Signal(ID3D12CommandQueue* commandQueue, ID3D12Fence* fence, u64 fenceValue);
+	u64 Signal(ID3D12CommandQueue* commandQueue, ID3D12Fence* fence, u64 fenceValue);
 	void WaitForFenceValue(ID3D12Fence* fence, uint64_t fenceValue, HANDLE fenceEvent, u32 durationMS = INFINITE);
 
 	inline ID3D12Device*              GetD3DDevice() const { return m_d3dDevice.Get(); }
 	inline IDXGISwapChain3*           GetSwapChain() const { return m_swapChain.Get(); }
-	inline u64						  GetCurrentFenceValue() const { return m_fenceValues[m_frameIndex]; }
+	inline u64						  GetCurrentFenceValue() const { return m_fenceValue; }
 	inline ID3D12Resource*            GetCurrentRenderTarget() const { return m_renderTargets[m_frameIndex].Get(); }
 	inline ID3D12CommandQueue*        GetCommandQueue() const { return m_commandQueue.Get(); }
 	inline ID3D12CommandAllocator*    GetCommandAllocator() const { return m_commandAllocators[m_frameIndex].Get(); }
@@ -96,7 +90,7 @@ private:
 
 	// Presentation fence objects.
 	ComPtr<ID3D12Fence>                 m_fence;
-	u64									m_fenceValues[MAX_FRAME_COUNT];
+	u64									m_fenceValue;
 	Microsoft::WRL::Wrappers::Event     m_fenceEvent;
 
 	// Direct3D rendering objects.

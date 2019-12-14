@@ -4,6 +4,9 @@
 #include "Win32Window.h"
 #include "MiniApp.h"
 #include <thread>
+#include <atomic>
+
+std::atomic_int g_appthreadHasExited = 0;
 
 void AppthreadMain(BaseApp* app)
 {
@@ -12,6 +15,7 @@ void AppthreadMain(BaseApp* app)
 	while (app->Update()) ;
 	
 	app->Exit();
+	g_appthreadHasExited = 1;
 }
 
 INT WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR lpCmdLine, INT nCmdShow)
@@ -53,11 +57,10 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR lpCmdLine, INT nC
 		if (app.GetStats(avgFps, avgMs))
 		{
 			MiniPrintf(windowTitle, windowTitleLength, "%s - %f fps | %f.2 ms/frame", false, config.title, avgFps, avgMs);
-
 			SetWindowText((HWND)window.m_mainWindowHandle, windowTitle);
 		}
 	}
-
+	
 	appthread.join();
 	window.Exit();
 

@@ -48,6 +48,7 @@ struct Log
 		Assert,
 		GfxDevice,
 		Win32,
+		Input,
 
 		EnumCount,
 		EnumFirst = Default,

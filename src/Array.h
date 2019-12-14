@@ -23,6 +23,18 @@ public:
 		return &m_data[m_size++];
 	}
 
+	T* TryPushBack()
+	{
+		if (m_size < Capacity)
+		{
+			return &m_data[m_size++];
+		}
+		else
+		{
+			return nullptr;
+		}
+	}
+
 	void Size() const
 	{
 		return m_size;

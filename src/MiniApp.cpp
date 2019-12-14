@@ -17,11 +17,18 @@ bool MiniApp::Update()
 
 	InputMessages input = m_msgQueue->PumpMessages();
 	
+	if (input.m_bWantsToQuit)
+	{
+		// Don't start another frame if we want to quit 
+		// and have stopped pumping the window thread.
+		return false;
+	}
+
 	m_gpuDevice->BeginPresent();
 	// ...
 	m_gpuDevice->EndPresent();
 	
-	return !input.m_bWantsToQuit;
+	return true;
 }
 
 void MiniApp::Exit()

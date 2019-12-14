@@ -41,10 +41,17 @@ public:
 	{
 		ScopedLock lock(m_QueueLock);
 
-		KeyMsg* msg = m_messages.m_keys.PushBack();
+		KeyMsg* msg = m_messages.m_keys.TryPushBack();
 
-		msg->m_key = key;
-		msg->m_bKeyIsDown = bIsKeyDown;
+		if (msg)
+		{
+			msg->m_key = key;
+			msg->m_bKeyIsDown = bIsKeyDown;
+		}
+		else
+		{
+			LOG(Log::Input, "Key input %d dropped because input buffer was full!", key);
+		}
 	}
 
 	void AddQuitMessage()
