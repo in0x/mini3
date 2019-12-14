@@ -15,15 +15,7 @@ void GpuDeviceDX12::BeginPresent()
 	ASSERT_RESULT(hr);
 
 	// Transition the render target into the correct state to allow for drawing into it.
-	{
-		D3D12_RESOURCE_BARRIER barrier = CD3DX12_RESOURCE_BARRIER::Transition(
-			GetCurrentRenderTarget(),
-			D3D12_RESOURCE_STATE_PRESENT,
-			D3D12_RESOURCE_STATE_RENDER_TARGET
-		);
-
-		cmdlist->ResourceBarrier(1, &barrier);
-	}
+	TransitionBarrier(GetCurrentRenderTarget(), ResourceState::RS_PRESENT, ResourceState::RS_RENDER_TARGET);
 
 	// Clear the backbuffer and views. 
 	{
@@ -46,15 +38,7 @@ void GpuDeviceDX12::BeginPresent()
 	}
 
 	// Transition the render target to the state that allows it to be presented to the display.
-	{
-		D3D12_RESOURCE_BARRIER barrier = CD3DX12_RESOURCE_BARRIER::Transition(
-			GetCurrentRenderTarget(),
-			D3D12_RESOURCE_STATE_RENDER_TARGET,
-			D3D12_RESOURCE_STATE_PRESENT
-		);
-
-		cmdlist->ResourceBarrier(1, &barrier);
-	}
+	TransitionBarrier(GetCurrentRenderTarget(), ResourceState::RS_RENDER_TARGET, ResourceState::RS_PRESENT);
 }
 
 void GpuDeviceDX12::EndPresent()
@@ -140,6 +124,44 @@ void GpuDeviceDX12::Flush()
 		HRESULT hr = CreateDXGIFactory2(m_dxgiFactoryFlags, IID_PPV_ARGS(m_dxgiFactory.ReleaseAndGetAddressOf()));
 		ASSERT_RESULT(hr);
 	}
+}
+
+static D3D12_RESOURCE_STATES ResourceStateToDX12(ResourceState::Enum state)
+{
+	return static_cast<D3D12_RESOURCE_STATES>(state);
+}
+
+void GpuDeviceDX12::TransitionBarrier(ID3D12Resource* resources, ResourceState::Enum stateBefore, ResourceState::Enum stateAfter)
+{
+	ASSERT(resources);
+
+	D3D12_RESOURCE_BARRIER barrier = CD3DX12_RESOURCE_BARRIER::Transition(
+		resources,
+		ResourceStateToDX12(stateBefore),
+		ResourceStateToDX12(stateAfter)
+	);
+	
+	GetCommandList()->ResourceBarrier(1, &barrier);
+}
+
+void GpuDeviceDX12::TransitionBarriers(ID3D12Resource** resources, u8 numBarriers, ResourceState::Enum stateBefore, ResourceState::Enum stateAfter)
+{
+	ASSERT(resources);
+
+	D3D12_RESOURCE_BARRIER barriers[256];
+	for (u8 i = 0; i < numBarriers; ++i)
+	{
+		ASSERT(resources[i]);
+
+		barriers[i].Transition.pResource = resources[i];
+		barriers[i].Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
+		barriers[i].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+		barriers[i].Transition.StateAfter = ResourceStateToDX12(stateAfter);
+		barriers[i].Transition.StateBefore = ResourceStateToDX12(stateBefore);
+		barriers[i].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+	}
+
+	GetCommandList()->ResourceBarrier(numBarriers, barriers);
 }
 
 CD3DX12_CPU_DESCRIPTOR_HANDLE GpuDeviceDX12::GetRenderTargetView() const

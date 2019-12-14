@@ -22,6 +22,35 @@ using Microsoft::WRL::ComPtr;
 
 static const u32 MAX_FRAME_COUNT = 2;
 
+struct ResourceState
+{
+	enum Enum
+	{
+		RS_COMMON = 0,
+		RS_VERTEX_AND_CONSTANT_BUFFER = 0x1,
+		RS_INDEX_BUFFER = 0x2,
+		RS_RENDER_TARGET = 0x4,
+		RS_UNORDERED_ACCESS = 0x8,
+		RS_DEPTH_WRITE = 0x10,
+		RS_DEPTH_READ = 0x20,
+		RS_NON_PIXEL_SHADER_RESOURCE = 0x40,
+		RS_PIXEL_SHADER_RESOURCE = 0x80,
+		RS_STREAM_OUT = 0x100,
+		RS_INDIRECT_ARGUMENT = 0x200,
+		RS_COPY_DEST = 0x400,
+		RS_COPY_SOURCE = 0x800,
+		RS_RESOLVE_DEST = 0x1000,
+		RS_RESOLVE_SOURCE = 0x2000,
+		RS_GENERIC_READ = ( ( ( ( (0x1 | 0x2) | 0x40) | 0x80) | 0x200) | 0x800),
+		RS_PRESENT = 0,
+		RS_PREDICATION = 0x200,
+		RS_VIDEO_DECODE_READ = 0x10000,
+		RS_VIDEO_DECODE_WRITE = 0x20000,
+		RS_VIDEO_PROCESS_READ = 0x40000,
+		RS_VIDEO_PROCESS_WRITE = 0x80000
+	};
+};
+
 class GpuDeviceDX12
 {
 public:
@@ -40,6 +69,9 @@ public:
 	void Flush();
 	u64 Signal(ID3D12CommandQueue* commandQueue, ID3D12Fence* fence, u64 fenceValue);
 	void WaitForFenceValue(ID3D12Fence* fence, uint64_t fenceValue, HANDLE fenceEvent, u32 durationMS = INFINITE);
+
+	void TransitionBarrier(ID3D12Resource* resources, ResourceState::Enum stateBefore, ResourceState::Enum stateAfter);
+	void TransitionBarriers(ID3D12Resource** resources, u8 numBarriers, ResourceState::Enum stateBefore, ResourceState::Enum stateAfter);
 
 	inline ID3D12Device*              GetD3DDevice() const { return m_d3dDevice.Get(); }
 	inline IDXGISwapChain3*           GetSwapChain() const { return m_swapChain.Get(); }
