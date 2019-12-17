@@ -148,8 +148,8 @@ struct Mesh
 class DescriptorTableFrameAllocator
 {
 public:
-	DescriptorTableFrameAllocator(ID3D12Device* device, D3D12_DESCRIPTOR_HEAP_TYPE type, u32 max_rename_count);
-	~DescriptorTableFrameAllocator();
+	void Create(ID3D12Device* device, D3D12_DESCRIPTOR_HEAP_TYPE type, u32 max_rename_count);
+	void Destroy();
 
 	void Reset(ID3D12Device* device, D3D12_CPU_DESCRIPTOR_HANDLE* null_descriptors_sampler_cbv_srv_uav);
 	void BindDescriptor(ShaderStage::Enum stage, u32 offset, D3D12_CPU_DESCRIPTOR_HANDLE const* descriptor, ID3D12Device* device, ID3D12GraphicsCommandList* command_list);
@@ -158,27 +158,30 @@ public:
 private:
 	size_t GetBoundDescriptorHeapSize() const;
 
-	ComPtr<ID3D12DescriptorHeap> m_heap_cpu;
-	ComPtr<ID3D12DescriptorHeap> m_heap_gpu;
-	D3D12_DESCRIPTOR_HEAP_TYPE m_descriptor_type;
-	u32 m_item_size;
-	u32 m_item_count;
-	u32 m_ring_offset;
+	ComPtr<ID3D12DescriptorHeap> m_heap_cpu = nullptr;
+	ComPtr<ID3D12DescriptorHeap> m_heap_gpu = nullptr;
+	D3D12_DESCRIPTOR_HEAP_TYPE m_descriptor_type = D3D12_DESCRIPTOR_HEAP_TYPE_NUM_TYPES;
+	u32 m_item_size = 0;
+	u32 m_item_count = 0;
+	u32 m_ring_offse = 0;
 	bool m_is_dirty[ShaderStage::Count];
-	D3D12_CPU_DESCRIPTOR_HANDLE const** m_bound_descriptors;
+	D3D12_CPU_DESCRIPTOR_HANDLE const** m_bound_descriptors = nullptr;
 };
 
-class ResourceFrameAllocator
+class TransientFrameResourceAllocator
 {
 public:
-	ResourceFrameAllocator(ID3D12Device* device, size_t size_bytes);
-	~ResourceFrameAllocator();
+	void Create(ID3D12Device* device, size_t size_bytes);
+	void Clear();
+
+	u8* Allocate(size_t size_bytes, size_t alignment);
+	u64 CalculateOffset(u8* address);
 
 private:
-	ComPtr<ID3D12Resource> m_resource;
-	u8* m_data_begin;
-	u8* m_data_current;
-	u8* m_data_end;
+	ComPtr<ID3D12Resource> m_resource = nullptr;
+	u8* m_data_begin = 0;
+	u8* m_data_current = 0;
+	u8* m_data_end = 0;
 };
 
 class GpuDeviceDX12
@@ -289,6 +292,8 @@ private:
 
 		DescriptorTableFrameAllocator resource_descriptors_gpu;
 		DescriptorTableFrameAllocator sampler_descriptors_gpu;
+
+		TransientFrameResourceAllocator transient_resource_allocator;
 	};
 
 	FrameResource m_frame_resource[MAX_FRAME_COUNT];

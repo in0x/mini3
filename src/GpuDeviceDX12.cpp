@@ -12,7 +12,16 @@ size_t DescriptorTableFrameAllocator::GetBoundDescriptorHeapSize() const
 	return ShaderStage::Count * m_item_count;
 }
 
-DescriptorTableFrameAllocator::DescriptorTableFrameAllocator(ID3D12Device* device, D3D12_DESCRIPTOR_HEAP_TYPE type, u32 max_rename_count)
+DescriptorTableFrameAllocator::DescriptorTableFrameAllocator()
+{
+}
+
+DescriptorTableFrameAllocator::~DescriptorTableFrameAllocator()
+{
+	ASSERT(m_bound_descriptors == nullptr);
+}
+
+void DescriptorTableFrameAllocator::Create(ID3D12Device* device, D3D12_DESCRIPTOR_HEAP_TYPE type, u32 max_rename_count)
 {
 	if (type == D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER)
 	{
@@ -48,10 +57,12 @@ DescriptorTableFrameAllocator::DescriptorTableFrameAllocator(ID3D12Device* devic
 	m_bound_descriptors = new D3D12_CPU_DESCRIPTOR_HANDLE const*[GetBoundDescriptorHeapSize()];
 }
 
-DescriptorTableFrameAllocator::~DescriptorTableFrameAllocator()
+void DescriptorTableFrameAllocator::Destroy()
 {
 	delete m_bound_descriptors;
+	m_bound_descriptors = nullptr;
 }
+
 
 void DescriptorTableFrameAllocator::Reset(ID3D12Device* device, D3D12_CPU_DESCRIPTOR_HANDLE* null_descriptors_sampler_cbv_srv_uav)
 {
@@ -159,6 +170,53 @@ void DescriptorTableFrameAllocator::Update(ID3D12Device* device, ID3D12GraphicsC
 		m_is_dirty[stage] = false;
 		m_ring_offset += m_item_count * m_item_size;
 	}
+}
+
+void TransientFrameResourceAllocator::Create(ID3D12Device* device, size_t size_bytes)
+{
+	CD3DX12_HEAP_PROPERTIES heap_props(D3D12_HEAP_TYPE_UPLOAD);
+	CD3DX12_RESOURCE_DESC buffer_desc = CD3DX12_RESOURCE_DESC::Buffer(size_bytes);
+
+	HRESULT hr = device->CreateCommittedResource(
+		&heap_props,
+		D3D12_HEAP_FLAG_NONE,
+		&buffer_desc,
+		D3D12_RESOURCE_STATE_GENERIC_READ,
+		nullptr,
+		IID_PPV_ARGS(&m_resource)
+	);
+
+	ASSERT_RESULT(hr);
+
+	// Will not perform cpu reads from the resource.
+	void* data_ptr = nullptr;
+	CD3DX12_RANGE read_range(0, 0);
+	m_resource->Map(0, &read_range, &data_ptr);
+
+	m_data_begin = static_cast<u8*>(data_ptr);
+	m_data_current = m_data_begin;
+	m_data_end = m_data_begin + size_bytes;
+}
+
+u8* TransientFrameResourceAllocator::Allocate(size_t size_bytes, size_t alignment)
+{
+	ptrdiff_t alignment_padding = GetAlignmentAdjustment(m_data_current, alignment);
+	ASSERT((m_data_current + size_bytes + alignment_padding) <= m_data_end);
+
+	u8* allocation = AlignAddress(m_data_current, alignment);
+	m_data_current += (size_bytes + alignment_padding);
+
+	return allocation;
+}
+
+u64 TransientFrameResourceAllocator::CalculateOffset(u8* address)
+{
+	ASSERT(address >= m_data_begin && address < m_data_end);
+	return static_cast<u64>(address - m_data_begin);
+}
+
+void TransientFrameResourceAllocator::Clear()
+{
 }
 
 void GpuDeviceDX12::BeginPresent()

@@ -80,6 +80,8 @@ void DebugPrintf(char const* file, int line, char const* fmt, Log::Category cate
 #define ASSERT_RESULT_F(hr, format, ...) ASSERT_F(SUCCEEDED(hr), format, __VA_ARGS__)
 #define ASSERT_FAIL() assert(false)
 #define ASSERT_FAIL_F(format, ...) ASSERT_F(false, format, __VA_ARGS__)
+#define VERIFY(x) assert(x);
+#define DEBUG_CODE(x) x
 #else
 #define ASSERT(x) 
 #define ASSERT_F(x, format, ...)  
@@ -87,6 +89,8 @@ void DebugPrintf(char const* file, int line, char const* fmt, Log::Category cate
 #define ASSERT_RESULT_F(hr, format, ...)
 #define ASSERT_FAIL()
 #define ASSERT_FAIL_F(format, ...)
+#define VERIFY(x) x;
+#define DEBUG_CODE(x)
 #endif
 
 #define UNUSED(x) (void)(x)
@@ -106,4 +110,21 @@ T min(const T& a, const T& b)
 inline void memzero(void* dst, size_t size)
 {
 	memset(dst, 0, size);
+}
+
+inline ptrdiff_t GetAlignmentAdjustment(u8* raw, size_t alignment)
+{
+	uintptr_t ptr = reinterpret_cast<uintptr_t>(raw);
+
+	size_t mask = (alignment - 1);
+	uintptr_t misalignment = (ptr & mask);
+	return alignment - misalignment;
+}
+
+inline u8* AlignAddress(u8* raw, size_t alignment)
+{
+	ptrdiff_t adjust = GetAlignmentAdjustment(raw, alignment);
+
+	u8* aligned = raw + adjust;
+	return aligned;
 }
