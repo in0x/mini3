@@ -21,5 +21,6 @@
     <ClInclude Include="..\src\Array.h" />
     <ClInclude Include="..\src\FrameTimer.h" />
     <ClInclude Include="..\src\GpuDeviceDX12.h" />
+    <ClInclude Include="..\src\Math.h" />
   </ItemGroup>
 </Project>

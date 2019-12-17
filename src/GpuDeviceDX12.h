@@ -16,7 +16,11 @@
 #include <dxgi1_5.h>
 #endif
 
+#ifdef _DEBUG
 #include <dxgidebug.h>
+#endif
+
+#include "Array.h"
 
 using Microsoft::WRL::ComPtr;
 
@@ -26,39 +30,168 @@ struct ResourceState
 {
 	enum Enum
 	{
-		RS_COMMON = 0,
-		RS_VERTEX_AND_CONSTANT_BUFFER = 0x1,
-		RS_INDEX_BUFFER = 0x2,
-		RS_RENDER_TARGET = 0x4,
-		RS_UNORDERED_ACCESS = 0x8,
-		RS_DEPTH_WRITE = 0x10,
-		RS_DEPTH_READ = 0x20,
-		RS_NON_PIXEL_SHADER_RESOURCE = 0x40,
-		RS_PIXEL_SHADER_RESOURCE = 0x80,
-		RS_STREAM_OUT = 0x100,
-		RS_INDIRECT_ARGUMENT = 0x200,
-		RS_COPY_DEST = 0x400,
-		RS_COPY_SOURCE = 0x800,
-		RS_RESOLVE_DEST = 0x1000,
-		RS_RESOLVE_SOURCE = 0x2000,
-		RS_GENERIC_READ = ( ( ( ( (0x1 | 0x2) | 0x40) | 0x80) | 0x200) | 0x800),
-		RS_PRESENT = 0,
-		RS_PREDICATION = 0x200,
-		RS_VIDEO_DECODE_READ = 0x10000,
-		RS_VIDEO_DECODE_WRITE = 0x20000,
-		RS_VIDEO_PROCESS_READ = 0x40000,
-		RS_VIDEO_PROCESS_WRITE = 0x80000
+		Common = 0,
+		Vertex_And_Constant_Buffer = 0x1,
+		Index_Buffer = 0x2,
+		Render_Target = 0x4,
+		Unordered_Acces = 0x8,
+		Depth_Write = 0x10,
+		Depth_Read = 0x20,
+		Non_Pixel_Shader_Resource = 0x40,
+		Pixel_Shader_Resource = 0x80,
+		Stream_Out = 0x100,
+		Indirect_Argument = 0x200,
+		Copy_Dest = 0x400,
+		Copy_Source = 0x800,
+		Resolve_Dest = 0x1000,
+		Resolve_Source = 0x2000,
+		Generic_Read = ( ( ( ( (0x1 | 0x2) | 0x40) | 0x80) | 0x200) | 0x800),
+		Present = 0,
+		Predication = 0x200,
+		Video_Decode_Read = 0x10000,
+		Video_Decode_Write = 0x20000,
+		Video_Proecss_Read = 0x40000,
+		Video_Process_Write = 0x80000
 	};
+};
+
+struct ShaderStage
+{
+	enum Enum
+	{
+		Vertex,
+		Pixel,
+		Geometry,
+		Hull,
+		Domain,
+		Compute,
+		Invalid,
+		Count = Invalid
+	};
+};
+
+static_assert(ShaderStage::Vertex == 0, "Assuming ShaderStage 0 is Vertex!");
+
+struct BufferUsage
+{
+	enum Enum
+	{
+		Default,
+		Immutable,
+		Dynamic,
+		Staging
+	};
+};
+
+struct Shader
+{
+	ComPtr<ID3DBlob> blob = nullptr;
+};
+
+struct GraphicsPsoDesc
+{
+	Shader shaders[ShaderStage::Count];
+};
+
+struct GraphicsPso
+{
+	ComPtr<ID3D12PipelineState> pso = nullptr;
+};
+
+struct GpuResource
+{
+	ComPtr<ID3D12Resource> resource = nullptr;
+	D3D12_CPU_DESCRIPTOR_HANDLE* srv = nullptr;
+	D3D12_CPU_DESCRIPTOR_HANDLE* uav = nullptr;
+};
+
+struct GpuBufferDesc
+{
+	u32 sizes_bytes = 0;
+	u32 bind_flags = 0;
+	u32 cpu_access_flags = 0;
+	u32 misc_flags = 0;
+	u32 stride_in_bytes = 0;
+	BufferUsage::Enum usage = BufferUsage::Default;
+	DXGI_FORMAT format = DXGI_FORMAT_UNKNOWN;
+};
+
+struct GpuBuffer : public GpuResource
+{
+	D3D12_CPU_DESCRIPTOR_HANDLE* cbv  = nullptr;
+	GpuBufferDesc desc;
+};
+
+struct CpuBuffer
+{
+	ComPtr<ID3DBlob> blob;
+};
+
+struct SubMesh
+{
+	u32 num_indices = 0;
+	u32 first_index_location = 0;
+	u32 base_vertex_location = 0;
+};
+
+struct Mesh
+{
+	CpuBuffer* vertex_buffer_cpu = nullptr;
+	CpuBuffer* index_buffer_cpu = nullptr;
+
+	GpuBuffer* vertex_buffer_gpu = nullptr;
+	GpuBuffer* index_buffer_gpu = nullptr;
+
+	Array<SubMesh, 8> submeshes;
+};
+
+class DescriptorTableFrameAllocator
+{
+public:
+	DescriptorTableFrameAllocator(ID3D12Device* device, D3D12_DESCRIPTOR_HEAP_TYPE type, u32 max_rename_count);
+	~DescriptorTableFrameAllocator();
+
+	void Reset(ID3D12Device* device, D3D12_CPU_DESCRIPTOR_HANDLE* null_descriptors_sampler_cbv_srv_uav);
+	void BindDescriptor(ShaderStage::Enum stage, u32 offset, D3D12_CPU_DESCRIPTOR_HANDLE const* descriptor, ID3D12Device* device, ID3D12GraphicsCommandList* command_list);
+	void Update(ID3D12Device* device, ID3D12GraphicsCommandList* command_list);
+
+private:
+	size_t GetBoundDescriptorHeapSize() const;
+
+	ComPtr<ID3D12DescriptorHeap> m_heap_cpu;
+	ComPtr<ID3D12DescriptorHeap> m_heap_gpu;
+	D3D12_DESCRIPTOR_HEAP_TYPE m_descriptor_type;
+	u32 m_item_size;
+	u32 m_item_count;
+	u32 m_ring_offset;
+	bool m_is_dirty[ShaderStage::Count];
+	D3D12_CPU_DESCRIPTOR_HANDLE const** m_bound_descriptors;
+};
+
+class ResourceFrameAllocator
+{
+public:
+	ResourceFrameAllocator(ID3D12Device* device, size_t size_bytes);
+	~ResourceFrameAllocator();
+
+private:
+	ComPtr<ID3D12Resource> m_resource;
+	u8* m_data_begin;
+	u8* m_data_current;
+	u8* m_data_end;
 };
 
 class GpuDeviceDX12
 {
 public:
-	enum InitFlags : u32
+	struct InitFlags
 	{
-		IF_EnableDebugLayer = 1 << 0,
-		IF_AllowTearing = 1 << 1,
-		IF_EnableHDR = 1 << 2
+		enum Enum : u32
+		{
+			Enabled_Debug_Layer = 1 << 0,
+			Allow_Tearing = 1 << 1,
+			Enabled_HDR = 1 << 2
+		};
 	};
 
 	void Init(void* windowHandle, u32 initFlags);
@@ -73,18 +206,15 @@ public:
 	void TransitionBarrier(ID3D12Resource* resources, ResourceState::Enum stateBefore, ResourceState::Enum stateAfter);
 	void TransitionBarriers(ID3D12Resource** resources, u8 numBarriers, ResourceState::Enum stateBefore, ResourceState::Enum stateAfter);
 
-	inline ID3D12Device*              GetD3DDevice() const { return m_d3dDevice.Get(); }
-	inline IDXGISwapChain3*           GetSwapChain() const { return m_swapChain.Get(); }
-	inline u64						  GetCurrentFenceValue() const { return m_fenceValue; }
-	inline ID3D12Resource*            GetCurrentRenderTarget() const { return m_renderTargets[m_frameIndex].Get(); }
-	inline ID3D12CommandQueue*        GetCommandQueue() const { return m_commandQueue.Get(); }
-	inline ID3D12CommandAllocator*    GetCommandAllocator() const { return m_commandAllocators[m_frameIndex].Get(); }
-	inline ID3D12GraphicsCommandList* GetCommandList() const { return m_commandList.Get(); }
+	inline ID3D12Device*              GetD3DDevice() const { return m_d3d_device.Get(); }
+	inline IDXGISwapChain3*           GetSwapChain() const { return m_swap_chain.Get(); }
+	inline u64						  GetCurrentFenceValue() const { return m_fence_value; }
+	inline ID3D12CommandQueue*        GetCommandQueue() const { return m_command_queue.Get(); }
 	inline ID3D12Fence*				  GetFence() const { return m_fence.Get(); }
-	inline HANDLE					  GetFenceEvent() { return m_fenceEvent.Get(); }
-	inline D3D12_VIEWPORT             GetScreenViewport() const { return m_screenViewport; }
-	inline D3D12_RECT                 GetScissorRect() const { return m_scissorRect; }
-	inline UINT                       GetCurrentFrameIndex() const { return m_frameIndex; }	
+	inline HANDLE					  GetFenceEvent() { return m_fence_event.Get(); }
+	inline D3D12_VIEWPORT             GetScreenViewport() const { return m_screen_viewport; }
+	inline D3D12_RECT                 GetScissorRect() const { return m_scissor_rect; }
+	inline UINT                       GetCurrentFrameIndex() const { return m_frame_index; }	
 
 private:
 	void enableDebugLayer();
@@ -107,45 +237,65 @@ private:
 	CD3DX12_CPU_DESCRIPTOR_HANDLE GetRenderTargetView() const;
 	CD3DX12_CPU_DESCRIPTOR_HANDLE GetDepthStencilView() const;
 
-	u32									m_frameIndex;
+	u32									m_frame_index;
 
-	ComPtr<ID3D12Device>                m_d3dDevice;
-	ComPtr<ID3D12CommandQueue>          m_commandQueue;
-	ComPtr<ID3D12GraphicsCommandList>   m_commandList;
-	ComPtr<ID3D12CommandAllocator>      m_commandAllocators[MAX_FRAME_COUNT];
+	ComPtr<ID3D12Device>                m_d3d_device;
+	ComPtr<ID3D12CommandQueue>          m_command_queue;
 
 	// Swap chain objects.
-	ComPtr<IDXGIFactory4>               m_dxgiFactory;
-	ComPtr<IDXGISwapChain3>             m_swapChain;
-	ComPtr<ID3D12Resource>              m_renderTargets[MAX_FRAME_COUNT];
-	ComPtr<ID3D12Resource>              m_depthStencil;
+	ComPtr<IDXGIFactory4>               m_dxgi_factory;
+	ComPtr<IDXGISwapChain3>             m_swap_chain;
+	ComPtr<ID3D12Resource>              m_depth_stencil;
 
 	// Presentation fence objects.
 	ComPtr<ID3D12Fence>                 m_fence;
-	u64									m_fenceValue;
-	Microsoft::WRL::Wrappers::Event     m_fenceEvent;
+	u64									m_fence_value;
+	Microsoft::WRL::Wrappers::Event     m_fence_event;
 
 	// Direct3D rendering objects.
-	ComPtr<ID3D12DescriptorHeap>        m_rtvDescriptorHeap;
-	ComPtr<ID3D12DescriptorHeap>        m_dsvDescriptorHeap;
-	u64									m_rtvDescriptorSize;
-	D3D12_VIEWPORT                      m_screenViewport;
-	D3D12_RECT                          m_scissorRect;
+	ComPtr<ID3D12DescriptorHeap>        m_rtv_descriptor_heap;
+	ComPtr<ID3D12DescriptorHeap>        m_dsv_descriptor_heap;
+	u64									m_rtv_descriptor_size;
+	D3D12_VIEWPORT                      m_screen_viewport;
+	D3D12_RECT                          m_scissor_rect;
 
 	// Direct3D properties.
-	DXGI_FORMAT                         m_backBufferFormat;
-	DXGI_FORMAT                         m_depthBufferFormat;
-	u32									m_backBufferCount;
-	D3D_FEATURE_LEVEL                   m_d3dMinFeatureLevel;
+	DXGI_FORMAT                         m_backbuffer_format;
+	DXGI_FORMAT                         m_depthbuffer_format;
+	u32									m_backbuffer_count;
+	D3D_FEATURE_LEVEL                   m_d3d_min_feature_level;
 
 	// Cached device properties.
 	HWND                                m_window;
-	D3D_FEATURE_LEVEL                   m_d3dFeatureLevel;
-	DWORD                               m_dxgiFactoryFlags;
-	RECT                                m_outputSize;
+	D3D_FEATURE_LEVEL                   m_d3d_feature_level;
+	DWORD                               m_dxgi_factory_flags;
+	RECT                                m_output_size;
 
 	// HDR Support
-	DXGI_COLOR_SPACE_TYPE               m_colorSpace;
+	DXGI_COLOR_SPACE_TYPE               m_color_space;
 
-	u32 m_initFlags;
+	u32 m_init_flags;
+
+	struct FrameResource
+	{
+		ComPtr<ID3D12Resource> render_target;
+		ComPtr<ID3D12CommandAllocator> command_allocator;
+		ComPtr<ID3D12GraphicsCommandList> command_list;
+		u64 fence_value;
+
+		inline ID3D12Resource*            GetCurrentRenderTarget() const { return render_target.Get(); }
+		inline ID3D12CommandAllocator*    GetCommandAllocator() const { return command_allocator.Get(); }
+		inline ID3D12GraphicsCommandList* GetCommandList() const { return command_list.Get(); }
+
+		DescriptorTableFrameAllocator resource_descriptors_gpu;
+		DescriptorTableFrameAllocator sampler_descriptors_gpu;
+	};
+
+	FrameResource m_frame_resource[MAX_FRAME_COUNT];
+	inline FrameResource* GetFrameResources() { return m_frame_resource + m_frame_index; }
 };
+
+void BindVertexBuffer(ID3D12GraphicsCommandList* command_list, GpuBuffer const * vertex_buffer, u8 slot, u32 strides, u32 offset);
+void BindVertexBuffers(ID3D12GraphicsCommandList* command_list, GpuBuffer const ** vertex_buffers, u8 slot, u8 count, u32 const* strides, u32 const* offsets);
+void BindIndexBuffer(ID3D12GraphicsCommandList* command_list, GpuBuffer const* index_buffer, u32 offset);
+void DrawMesh(Mesh const* mesh, ID3D12GraphicsCommandList* command_list);

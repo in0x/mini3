@@ -1,5 +1,6 @@
 #pragma once
 #include "BaseApp.h"
+#include "Math.h"
 
 class GpuDeviceDX12;
 
@@ -10,5 +11,8 @@ class MiniApp : public BaseApp
 	virtual void Exit() override;
 
 private:
-	GpuDeviceDX12* m_gpuDevice;
+	Mtx34 m_view;
+	Mtx34 m_projection;
+
+	GpuDeviceDX12* m_gpu_device;
 };

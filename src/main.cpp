@@ -6,7 +6,7 @@
 #include <thread>
 #include <atomic>
 
-std::atomic_int g_appthreadHasExited = 0;
+std::atomic_int g_appthread_has_exited = 0;
 
 void AppthreadMain(BaseApp* app)
 {
@@ -15,7 +15,7 @@ void AppthreadMain(BaseApp* app)
 	while (app->Update()) ;
 	
 	app->Exit();
-	g_appthreadHasExited = 1;
+	g_appthread_has_exited = 1;
 }
 
 INT WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR lpCmdLine, INT nCmdShow)
@@ -33,16 +33,16 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR lpCmdLine, INT nC
 	config.left = 0;
 	config.top = 0;
 	config.title = "mini3";
-	config.bFullscreen = false;
-	config.bAutoShow = true;
+	config.b_fullscreen = false;
+	config.b_auto_show = true;
 
 	MiniApp app;
 	Win32Window window;
 	
 	window.Init(config);
 
-	app.SetNativeHandle(window.m_mainWindowHandle);
-	app.SetMessageQueue(&window.m_msgQueue);
+	app.SetNativeHandle(window.m_main_window_handle);
+	app.SetMessageQueue(&window.m_msg_queue);
 
 	// We run the app on the "App" thread to avoid blocking during message pump.
 	std::thread appthread(AppthreadMain, &app);
@@ -57,7 +57,7 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR lpCmdLine, INT nC
 		if (app.GetStats(avgFps, avgMs))
 		{
 			MiniPrintf(windowTitle, windowTitleLength, "%s - %f fps | %f.2 ms/frame", false, config.title, avgFps, avgMs);
-			SetWindowText((HWND)window.m_mainWindowHandle, windowTitle);
+			SetWindowText((HWND)window.m_main_window_handle, windowTitle);
 		}
 	}
 	

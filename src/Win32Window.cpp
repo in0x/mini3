@@ -52,7 +52,7 @@ bool Win32Window::Init(WindowConfig const& config)
 	DWORD exWindStyle = WS_EX_APPWINDOW;
 	DWORD windStyle = 0;
 
-	if (config.bFullscreen)
+	if (config.b_fullscreen)
 	{
 		DEVMODE displayConfig = {};
 		EnumDisplaySettings(nullptr, ENUM_REGISTRY_SETTINGS, &displayConfig);
@@ -74,7 +74,7 @@ bool Win32Window::Init(WindowConfig const& config)
 		AdjustWindowRectEx(&windowRect, windStyle, FALSE, exWindStyle);
 	}
 
-	m_mainWindowHandle = CreateWindowEx(
+	m_main_window_handle = CreateWindowEx(
 		exWindStyle,
 		s_mainWindowClassName,
 		config.title,
@@ -86,23 +86,23 @@ bool Win32Window::Init(WindowConfig const& config)
 		GetModuleHandle(nullptr),
 		this);
 
-	if (m_mainWindowHandle == nullptr)
+	if (m_main_window_handle == nullptr)
 	{
 		LogLastWindowsError();
 		return false;
 	}
 
-	if (config.bAutoShow)
+	if (config.b_auto_show)
 	{
-		ShowWindow((HWND)m_mainWindowHandle, SW_SHOW);
-		SetForegroundWindow((HWND)m_mainWindowHandle);
+		ShowWindow((HWND)m_main_window_handle, SW_SHOW);
+		SetForegroundWindow((HWND)m_main_window_handle);
 	}
 
-	UpdateWindow((HWND)m_mainWindowHandle);
+	UpdateWindow((HWND)m_main_window_handle);
 	
-	LOG(Log::Win32, "Created window TITLE: %s WIDTH: %u HEIGHT: %u FULLSCREEN: %d", config.title, config.width, config.height, static_cast<s32>(config.bFullscreen));
+	LOG(Log::Win32, "Created window TITLE: %s WIDTH: %u HEIGHT: %u FULLSCREEN: %d", config.title, config.width, config.height, static_cast<s32>(config.b_fullscreen));
 
-	return m_mainWindowHandle != nullptr;
+	return m_main_window_handle != nullptr;
 }
 
 bool Win32Window::Run()
@@ -112,7 +112,7 @@ bool Win32Window::Run()
 	{
 		if (WM_QUIT == msg.message)
 		{
-			m_msgQueue.AddQuitMessage();
+			m_msg_queue.AddQuitMessage();
 			return false;
 		}
 
@@ -157,13 +157,13 @@ static LRESULT CALLBACK OnMainWindowEvent(HWND handle, UINT message, WPARAM wPar
 	
 	case WM_KEYDOWN:
 	{
-		window->m_msgQueue.AddKeyMessage(static_cast<s8>(wParam), true);
+		window->m_msg_queue.AddKeyMessage(static_cast<s8>(wParam), true);
 		break;
 	}
 	
 	case WM_KEYUP:
 	{
-		window->m_msgQueue.AddKeyMessage(static_cast<s8>(wParam), false);
+		window->m_msg_queue.AddKeyMessage(static_cast<s8>(wParam), false);
 		break;
 	}
 	}

@@ -10,8 +10,8 @@ struct WindowConfig
 	u32 left;
 	u32 top;
 	const char* title;
-	bool bFullscreen;
-	bool bAutoShow;
+	bool b_fullscreen;
+	bool b_auto_show;
 };
 
 class IMessageQueueConsumer;
@@ -25,30 +25,30 @@ public:
 	virtual bool Update();
 	virtual void Exit();
 
-	void SetNativeHandle(void* nativeHandle);
+	void SetNativeHandle(void* native_handle);
 	void* GetNativeHandle();
 
 	void SetMessageQueue(IMessageQueueConsumer* queue);
 
 	// Returns whether the stats where refreshed since the last read.
-	bool GetStats(f32& outAvgFps, f32& outAvgMsPerFrame);
+	bool GetStats(f32& out_avg_fps, f32& out_avg_ms_per_frame);
 
 protected:
 	FrameTimer m_timer;
-	IMessageQueueConsumer* m_msgQueue;
+	IMessageQueueConsumer* m_msg_queue;
 
 private:
 	struct
 	{
 		f32 counter;
-		f32 elapsedTime;
-		f32 avgFps;
-		f32 avgMs;
-		bool m_bStatsRefreshed;
+		f32 elapsed_time;
+		f32 avg_fps;
+		f32 avg_ms;
+		bool m_b_stats_refreshed;
 	} m_frameStats = { 0 };
 
 	void UpdateFrameStats();
 	
-	void* m_nativeHandle;
-	bool m_bIsPaused;
+	void* m_native_handle;
+	bool m_b_is_paused;
 };

@@ -18,6 +18,8 @@ typedef int64_t s64;
 typedef float f32;
 typedef double f64;
 
+//constexpr size_t S8_MAX
+
 static constexpr size_t MAX_DEBUG_MSG_SIZE = 1024;
 thread_local static char g_debugFmtBuffer[MAX_DEBUG_MSG_SIZE];
 thread_local static char g_debugMsgBuffer[MAX_DEBUG_MSG_SIZE];
@@ -99,4 +101,9 @@ template <class T>
 T min(const T& a, const T& b)
 {
 	return (b < a) ? b : a;
+}
+
+inline void memzero(void* dst, size_t size)
+{
+	memset(dst, 0, size);
 }

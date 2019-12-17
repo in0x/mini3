@@ -12,6 +12,6 @@ public:
 	bool Run();
 	void Exit();
 
-	ThreadSafeInputMessageQueue m_msgQueue;
-	void* m_mainWindowHandle;
+	ThreadSafeInputMessageQueue m_msg_queue;
+	void* m_main_window_handle;
 };

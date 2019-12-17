@@ -165,6 +165,7 @@
     <ClInclude Include="..\src\Core.h" />
     <ClInclude Include="..\src\GpuDeviceDX12.h" />
     <ClInclude Include="..\src\InputMessageQueue.h" />
+    <ClInclude Include="..\src\Math.h" />
     <ClInclude Include="..\src\MiniApp.h" />
     <ClInclude Include="..\src\FrameTimer.h" />
     <ClInclude Include="..\src\Win32Window.h" />

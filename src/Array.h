@@ -1,10 +1,43 @@
 #pragma once
 #include "Core.h"
+#include <type_traits>
 
 template<typename T, u32 Capacity>
 class Array
 {
 public:
+	template<typename T>
+	struct ConstIterator
+	{
+		T* elem_ptr;
+
+		operator T const*()
+		{
+			return elem_ptr;
+		}
+
+		operator T const&()
+		{
+			return *elem_ptr;
+		}
+
+		bool operator ==(ConstIterator<T> const& other) const
+		{
+			return elem_ptr == other.elem_ptr;
+		}
+
+		bool operator !=(ConstIterator<T> const& other) const
+		{
+			return elem_ptr != other.elem_ptr;
+		}
+
+		ConstIterator<T>& operator++()
+		{
+			elem_ptr++;
+			return *this;
+		}
+	};
+
 	Array() = default;
 
 	Array(Array<T, Capacity> const& other)
@@ -38,6 +71,16 @@ public:
 	void Size() const
 	{
 		return m_size;
+	}
+
+	ConstIterator<T> begin() const
+	{
+		return { m_data };
+	}
+
+	ConstIterator<T> end() const
+	{
+		return { m_data + m_size };
 	}
 
 private:
