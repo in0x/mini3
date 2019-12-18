@@ -155,6 +155,9 @@ public:
 	void BindDescriptor(ShaderStage::Enum stage, u32 offset, D3D12_CPU_DESCRIPTOR_HANDLE const* descriptor, ID3D12Device* device);
 	void Update(ID3D12Device* device, ID3D12GraphicsCommandList* command_list);
 
+	ID3D12DescriptorHeap* GetGpuHeap() { return m_heap_gpu.Get(); }
+	ID3D12DescriptorHeap* GetCpuHeap() { return m_heap_cpu.Get(); }
+
 private:
 	size_t GetBoundDescriptorHeapSize() const;
 
@@ -236,7 +239,7 @@ private:
 
 	inline ID3D12Resource*            GetCurrentRenderTarget() const { return m_frame_resource[m_frame_index].render_target.Get(); }
 	inline ID3D12CommandAllocator*    GetCommandAllocator() const { return m_frame_resource[m_frame_index].command_allocator.Get(); }
-	inline ID3D12GraphicsCommandList* GetCommandList() const { return m_frame_resource[m_frame_index].command_list.Get(); }
+	inline ID3D12GraphicsCommandList* GetCurrentCommandList() const { return m_frame_resource[m_frame_index].command_list.Get(); }
 
 	void enableDebugLayer();
 	bool checkTearingSupport();

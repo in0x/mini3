@@ -94,6 +94,8 @@ void DebugPrintf(char const* file, int line, char const* fmt, Log::Category cate
 
 #define UNUSED(x) (void)(x)
 
+#define ARRAY_SIZE(x) _countof(x)
+
 template <class T>
 T max(const T& a, const T& b)
 {

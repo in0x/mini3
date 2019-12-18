@@ -240,19 +240,49 @@ u64 DescriptorAllocator::Allocate()
 
 void GpuDeviceDX12::BeginPresent()
 {
-	ComPtr<ID3D12CommandAllocator> allocator = GetCommandAllocator();
-	ComPtr<ID3D12GraphicsCommandList> cmdlist = GetCommandList();
-	ComPtr<ID3D12CommandQueue> cmdqueue = GetCommandQueue();
-	ComPtr<IDXGISwapChain3> swapchain = GetSwapChain();
+	FrameResource* frame_resources = GetFrameResources();
+
+	ID3D12GraphicsCommandList* cmdlist = GetCurrentCommandList();
+	ID3D12CommandAllocator* allocator = GetCommandAllocator();
 
 	HRESULT hr = allocator->Reset();
 	ASSERT_RESULT(hr);
 
-	hr = cmdlist->Reset(allocator.Get(), nullptr);
+	hr = cmdlist->Reset(allocator, nullptr);
 	ASSERT_RESULT(hr);
+
+	ID3D12DescriptorHeap* heaps[] = 
+	{
+		frame_resources->resource_descriptors_gpu.GetGpuHeap(),
+		frame_resources->sampler_descriptors_gpu.GetGpuHeap()
+	};
+
+	cmdlist->SetDescriptorHeaps(ARRAY_SIZE(heaps), heaps);
+	cmdlist->SetGraphicsRootSignature(m_graphics_root_sig.Get());
+	cmdlist->SetComputeRootSignature(m_compute_root_sig.Get());
+
+	D3D12_CPU_DESCRIPTOR_HANDLE null_descriptors[] = 
+	{
+		m_null_sampler,
+		m_null_cbv,
+		m_null_srv,
+		m_null_uav
+	};
+
+	frame_resources->resource_descriptors_gpu.Reset(GetD3DDevice(), null_descriptors);
+	frame_resources->sampler_descriptors_gpu.Reset(GetD3DDevice(), null_descriptors);
+	frame_resources->transient_resource_allocator.Clear();
 
 	// Transition the render target into the correct state to allow for drawing into it.
 	TransitionBarrier(GetCurrentRenderTarget(), ResourceState::Present, ResourceState::Render_Target);
+
+	// Set the viewport and scissor rect.
+	{
+		D3D12_VIEWPORT viewport = GetScreenViewport();
+		D3D12_RECT scissorRect = GetScissorRect();
+		cmdlist->RSSetViewports(1, &viewport);
+		cmdlist->RSSetScissorRects(1, &scissorRect);
+	}
 
 	// Clear the backbuffer and views. 
 	{
@@ -265,32 +295,27 @@ void GpuDeviceDX12::BeginPresent()
 		cmdlist->ClearRenderTargetView(rtvDescriptor, blueViolet, 0, nullptr);
 		cmdlist->ClearDepthStencilView(dsvDescriptor, D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, 0, nullptr);
 	}
-
-	// Set the viewport and scissor rect.
-	{
-		D3D12_VIEWPORT viewport = GetScreenViewport();
-		D3D12_RECT scissorRect = GetScissorRect();
-		cmdlist->RSSetViewports(1, &viewport);
-		cmdlist->RSSetScissorRects(1, &scissorRect);
-	}
-
+	
 	// Transition the render target to the state that allows it to be presented to the display.
 	TransitionBarrier(GetCurrentRenderTarget(), ResourceState::Render_Target, ResourceState::Present);
 }
 
 void GpuDeviceDX12::EndPresent()
 {
-	// TODO (update the root signature bindginds here )
+	ID3D12GraphicsCommandList* cmdlist = GetCurrentCommandList();
+	ID3D12CommandQueue* cmdqueue = GetCommandQueue();
+	IDXGISwapChain3* swapchain = GetSwapChain();
+	ID3D12Device* device = GetD3DDevice();
 
-	ComPtr<ID3D12GraphicsCommandList> cmdlist = GetCommandList();
-	ComPtr<ID3D12CommandQueue> cmdqueue = GetCommandQueue();
-	ComPtr<IDXGISwapChain3> swapchain = GetSwapChain();
+	FrameResource* frame_resources = GetFrameResources();
+	frame_resources->resource_descriptors_gpu.Update(device, cmdlist);
+	frame_resources->sampler_descriptors_gpu.Update(device, cmdlist);
 
 	// Send the command list off to the GPU for processing.
 	HRESULT hr = cmdlist->Close();
 	ASSERT_RESULT(hr);
 
-	ID3D12CommandList* ppCommandLists[] = { cmdlist.Get() };
+	ID3D12CommandList* ppCommandLists[] = { cmdlist };
 	cmdqueue->ExecuteCommandLists(_countof(ppCommandLists), ppCommandLists);
 
 	if (IsTearingAllowed())
@@ -343,7 +368,7 @@ u64 GpuDeviceDX12::Signal(ID3D12CommandQueue* commandQueue, ID3D12Fence* fence, 
 }
 
 void GpuDeviceDX12::Flush()
-{
+	{
 	// Prepare to render the next frame.
 	ID3D12Fence* fence = GetFence();
 	u64 currentFenceValue = GetCurrentFenceValue();
@@ -380,7 +405,7 @@ void GpuDeviceDX12::TransitionBarrier(ID3D12Resource* resources, ResourceState::
 		ResourceStateToDX12(state_after)
 	);
 	
-	GetCommandList()->ResourceBarrier(1, &barrier);
+	GetCurrentCommandList()->ResourceBarrier(1, &barrier);
 }
 
 void GpuDeviceDX12::TransitionBarriers(ID3D12Resource** resources, u8 num_barriers, ResourceState::Enum state_before, ResourceState::Enum state_after)
@@ -400,7 +425,7 @@ void GpuDeviceDX12::TransitionBarriers(ID3D12Resource** resources, u8 num_barrie
 		barriers[i].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
 	}
 
-	GetCommandList()->ResourceBarrier(num_barriers, barriers);
+	GetCurrentCommandList()->ResourceBarrier(num_barriers, barriers);
 }
 
 CD3DX12_CPU_DESCRIPTOR_HANDLE GpuDeviceDX12::GetRenderTargetView() const
@@ -993,56 +1018,59 @@ void GpuDeviceDX12::createDevice(bool bEnableDebugLayer)
 	m_d3d_device->SetName(L"DeviceResources");
 
 #ifdef _DEBUG
-	// Configure debug device (if active).
-	ComPtr<ID3D12InfoQueue> d3dInfoQueue;
-	if (SUCCEEDED(m_d3d_device.As(&d3dInfoQueue)))
+	if (bEnableDebugLayer)
 	{
-		d3dInfoQueue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_CORRUPTION, true);
-		d3dInfoQueue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_ERROR, true);
-		d3dInfoQueue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_WARNING, true);
-
-		D3D12_MESSAGE_SEVERITY Severities[] =
+		// Configure debug device (if active).
+		ComPtr<ID3D12InfoQueue> d3dInfoQueue;
+		if (SUCCEEDED(m_d3d_device.As(&d3dInfoQueue)))
 		{
-			D3D12_MESSAGE_SEVERITY_INFO
-		};
+			d3dInfoQueue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_CORRUPTION, true);
+			d3dInfoQueue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_ERROR, true);
+			d3dInfoQueue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_WARNING, true);
 
-		// Suppress individual messages by their ID
-		D3D12_MESSAGE_ID DenyIds[] = 
-		{
-			D3D12_MESSAGE_ID_CLEARRENDERTARGETVIEW_MISMATCHINGCLEARVALUE,
+			D3D12_MESSAGE_SEVERITY Severities[] =
+			{
+				D3D12_MESSAGE_SEVERITY_INFO
+			};
 
-			// This warning occurs when using capture frame while graphics debugging.
-			D3D12_MESSAGE_ID_MAP_INVALID_NULLRANGE,
+			// Suppress individual messages by their ID
+			D3D12_MESSAGE_ID DenyIds[] =
+			{
+				D3D12_MESSAGE_ID_CLEARRENDERTARGETVIEW_MISMATCHINGCLEARVALUE,
 
-			// This warning occurs when using capture frame while graphics debugging.
-			D3D12_MESSAGE_ID_UNMAP_INVALID_NULLRANGE,
+				// This warning occurs when using capture frame while graphics debugging.
+				D3D12_MESSAGE_ID_MAP_INVALID_NULLRANGE,
 
-			// This occurs when there are uninitialized descriptors in a descriptor table, even when a
-			// shader does not access the missing descriptors.  I find this is common when switching
-			// shader permutations and not wanting to change much code to reorder resources.
-			D3D12_MESSAGE_ID_INVALID_DESCRIPTOR_HANDLE,
+				// This warning occurs when using capture frame while graphics debugging.
+				D3D12_MESSAGE_ID_UNMAP_INVALID_NULLRANGE,
 
-			// Triggered when a shader does not export all color components of a render target, such as
-			// when only writing RGB to an R10G10B10A2 buffer, ignoring alpha.
-			D3D12_MESSAGE_ID_CREATEGRAPHICSPIPELINESTATE_PS_OUTPUT_RT_OUTPUT_MISMATCH,
+				// This occurs when there are uninitialized descriptors in a descriptor table, even when a
+				// shader does not access the missing descriptors.  I find this is common when switching
+				// shader permutations and not wanting to change much code to reorder resources.
+				D3D12_MESSAGE_ID_INVALID_DESCRIPTOR_HANDLE,
 
-			// This occurs when a descriptor table is unbound even when a shader does not access the missing
-			// descriptors.  This is common with a root signature shared between disparate shaders that
-			// don't all need the same types of resources.
-			D3D12_MESSAGE_ID_COMMAND_LIST_DESCRIPTOR_TABLE_NOT_SET,
+				// Triggered when a shader does not export all color components of a render target, such as
+				// when only writing RGB to an R10G10B10A2 buffer, ignoring alpha.
+				D3D12_MESSAGE_ID_CREATEGRAPHICSPIPELINESTATE_PS_OUTPUT_RT_OUTPUT_MISMATCH,
 
-			// RESOURCE_BARRIER_DUPLICATE_SUBRESOURCE_TRANSITIONS
-			(D3D12_MESSAGE_ID)1008,
-		};
+				// This occurs when a descriptor table is unbound even when a shader does not access the missing
+				// descriptors.  This is common with a root signature shared between disparate shaders that
+				// don't all need the same types of resources.
+				D3D12_MESSAGE_ID_COMMAND_LIST_DESCRIPTOR_TABLE_NOT_SET,
 
-		D3D12_INFO_QUEUE_FILTER filter = {};
-		filter.DenyList.NumSeverities = _countof(Severities);
-		filter.DenyList.pSeverityList = Severities;
-		filter.DenyList.NumIDs = _countof(DenyIds);
-		filter.DenyList.pIDList = DenyIds;
+				// RESOURCE_BARRIER_DUPLICATE_SUBRESOURCE_TRANSITIONS
+				(D3D12_MESSAGE_ID)1008,
+			};
 
-		HRESULT hr = d3dInfoQueue->AddStorageFilterEntries(&filter);
-		ASSERT_RESULT(hr);
+			D3D12_INFO_QUEUE_FILTER filter = {};
+			filter.DenyList.NumSeverities = _countof(Severities);
+			filter.DenyList.pSeverityList = Severities;
+			filter.DenyList.NumIDs = _countof(DenyIds);
+			filter.DenyList.pIDList = DenyIds;
+
+			HRESULT hr = d3dInfoQueue->AddStorageFilterEntries(&filter);
+			ASSERT_RESULT(hr);
+		}
 	}
 #endif //_DEBUG
 }
