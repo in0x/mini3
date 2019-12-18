@@ -152,7 +152,7 @@ public:
 	void Destroy();
 
 	void Reset(ID3D12Device* device, D3D12_CPU_DESCRIPTOR_HANDLE* null_descriptors_sampler_cbv_srv_uav);
-	void BindDescriptor(ShaderStage::Enum stage, u32 offset, D3D12_CPU_DESCRIPTOR_HANDLE const* descriptor, ID3D12Device* device, ID3D12GraphicsCommandList* command_list);
+	void BindDescriptor(ShaderStage::Enum stage, u32 offset, D3D12_CPU_DESCRIPTOR_HANDLE const* descriptor, ID3D12Device* device);
 	void Update(ID3D12Device* device, ID3D12GraphicsCommandList* command_list);
 
 private:
@@ -163,12 +163,12 @@ private:
 	D3D12_DESCRIPTOR_HEAP_TYPE m_descriptor_type = D3D12_DESCRIPTOR_HEAP_TYPE_NUM_TYPES;
 	u32 m_item_size = 0;
 	u32 m_item_count = 0;
-	u32 m_ring_offse = 0;
+	u32 m_ring_offset = 0;
 	bool m_is_dirty[ShaderStage::Count];
 	D3D12_CPU_DESCRIPTOR_HANDLE const** m_bound_descriptors = nullptr;
 };
 
-class TransientFrameResourceAllocator
+class ResourceAllocator
 {
 public:
 	void Create(ID3D12Device* device, size_t size_bytes);
@@ -184,6 +184,20 @@ private:
 	u8* m_data_end = 0;
 };
 
+class DescriptorAllocator
+{
+public:
+	void Create(ID3D12Device* device, D3D12_DESCRIPTOR_HEAP_TYPE type, u32 max_count);
+	u64 Allocate();
+
+private:
+	ComPtr<ID3D12DescriptorHeap> m_heap = nullptr;
+	std::atomic<u32> m_item_count = 0;
+	D3D12_DESCRIPTOR_HEAP_TYPE m_type;
+	u32 m_max_count = 0;
+	u32 m_item_size = 0;
+};
+
 class GpuDeviceDX12
 {
 public:
@@ -191,7 +205,7 @@ public:
 	{
 		enum Enum : u32
 		{
-			Enabled_Debug_Layer = 1 << 0,
+			Enable_Debug_Layer = 1 << 0,
 			Allow_Tearing = 1 << 1,
 			Enabled_HDR = 1 << 2
 		};
@@ -209,6 +223,7 @@ public:
 	void TransitionBarrier(ID3D12Resource* resources, ResourceState::Enum stateBefore, ResourceState::Enum stateAfter);
 	void TransitionBarriers(ID3D12Resource** resources, u8 numBarriers, ResourceState::Enum stateBefore, ResourceState::Enum stateAfter);
 
+private:
 	inline ID3D12Device*              GetD3DDevice() const { return m_d3d_device.Get(); }
 	inline IDXGISwapChain3*           GetSwapChain() const { return m_swap_chain.Get(); }
 	inline u64						  GetCurrentFenceValue() const { return m_fence_value; }
@@ -217,9 +232,12 @@ public:
 	inline HANDLE					  GetFenceEvent() { return m_fence_event.Get(); }
 	inline D3D12_VIEWPORT             GetScreenViewport() const { return m_screen_viewport; }
 	inline D3D12_RECT                 GetScissorRect() const { return m_scissor_rect; }
-	inline UINT                       GetCurrentFrameIndex() const { return m_frame_index; }	
+	inline UINT                       GetCurrentFrameIndex() const { return m_frame_index; }
 
-private:
+	inline ID3D12Resource*            GetCurrentRenderTarget() const { return m_frame_resource[m_frame_index].render_target.Get(); }
+	inline ID3D12CommandAllocator*    GetCommandAllocator() const { return m_frame_resource[m_frame_index].command_allocator.Get(); }
+	inline ID3D12GraphicsCommandList* GetCommandList() const { return m_frame_resource[m_frame_index].command_list.Get(); }
+
 	void enableDebugLayer();
 	bool checkTearingSupport();
 	void createDevice(bool bEnableDebugLayer);
@@ -229,18 +247,24 @@ private:
 	void createCommandAllocators();
 	void createCommandList();
 	void createEndOfFrameFence();
+	void createGraphicsRootSig();
+	void createComputeRootSig();
+	void createNullResources();
 
-	void initWindowSizeDependent();
+	void updateSwapchain(u32 width, u32 height);
 	void resizeSwapChain(u32 width, u32 height, DXGI_FORMAT format);
 	void createSwapChain(u32 width, u32 height, DXGI_FORMAT format);
 	void updateColorSpace();
-	void createBackBuffers();
 	void createDepthBuffer(u32 width, u32 height);
+	void UpdateViewportScissorRect(u32 width, u32 height);
 
 	CD3DX12_CPU_DESCRIPTOR_HANDLE GetRenderTargetView() const;
 	CD3DX12_CPU_DESCRIPTOR_HANDLE GetDepthStencilView() const;
 
 	u32									m_frame_index;
+	u32									m_init_flags;
+	u32									m_backbuffer_width;
+	u32									m_backbuffer_height;
 
 	ComPtr<ID3D12Device>                m_d3d_device;
 	ComPtr<ID3D12CommandQueue>          m_command_queue;
@@ -258,15 +282,15 @@ private:
 	// Direct3D rendering objects.
 	ComPtr<ID3D12DescriptorHeap>        m_rtv_descriptor_heap;
 	ComPtr<ID3D12DescriptorHeap>        m_dsv_descriptor_heap;
-	u64									m_rtv_descriptor_size;
+	u32									m_rtv_descriptor_size;
 	D3D12_VIEWPORT                      m_screen_viewport;
 	D3D12_RECT                          m_scissor_rect;
 
 	// Direct3D properties.
 	DXGI_FORMAT                         m_backbuffer_format;
 	DXGI_FORMAT                         m_depthbuffer_format;
-	u32									m_backbuffer_count;
 	D3D_FEATURE_LEVEL                   m_d3d_min_feature_level;
+	DXGI_COLOR_SPACE_TYPE               m_color_space;
 
 	// Cached device properties.
 	HWND                                m_window;
@@ -274,10 +298,13 @@ private:
 	DWORD                               m_dxgi_factory_flags;
 	RECT                                m_output_size;
 
-	// HDR Support
-	DXGI_COLOR_SPACE_TYPE               m_color_space;
+	ComPtr<ID3D12RootSignature>			m_graphics_root_sig;
+	ComPtr<ID3D12RootSignature>			m_compute_root_sig;
 
-	u32 m_init_flags;
+	D3D12_CPU_DESCRIPTOR_HANDLE			m_null_sampler;
+	D3D12_CPU_DESCRIPTOR_HANDLE			m_null_cbv;
+	D3D12_CPU_DESCRIPTOR_HANDLE			m_null_srv;
+	D3D12_CPU_DESCRIPTOR_HANDLE			m_null_uav;
 
 	struct FrameResource
 	{
@@ -286,21 +313,26 @@ private:
 		ComPtr<ID3D12GraphicsCommandList> command_list;
 		u64 fence_value;
 
-		inline ID3D12Resource*            GetCurrentRenderTarget() const { return render_target.Get(); }
-		inline ID3D12CommandAllocator*    GetCommandAllocator() const { return command_allocator.Get(); }
-		inline ID3D12GraphicsCommandList* GetCommandList() const { return command_list.Get(); }
-
 		DescriptorTableFrameAllocator resource_descriptors_gpu;
 		DescriptorTableFrameAllocator sampler_descriptors_gpu;
 
-		TransientFrameResourceAllocator transient_resource_allocator;
+		ResourceAllocator transient_resource_allocator;
 	};
 
 	FrameResource m_frame_resource[MAX_FRAME_COUNT];
 	inline FrameResource* GetFrameResources() { return m_frame_resource + m_frame_index; }
+	void createFrameResources();
+
+	DescriptorAllocator m_rt_alloctor;
+	DescriptorAllocator m_ds_allocator;
+	DescriptorAllocator m_resource_allocator;
+	DescriptorAllocator m_sampler_allocator;
+
+	ResourceAllocator m_buffer_upload_allocator;
+	ResourceAllocator m_texture_upload_allocator;
 };
 
-void BindVertexBuffer(ID3D12GraphicsCommandList* command_list, GpuBuffer const * vertex_buffer, u8 slot, u32 strides, u32 offset);
-void BindVertexBuffers(ID3D12GraphicsCommandList* command_list, GpuBuffer const ** vertex_buffers, u8 slot, u8 count, u32 const* strides, u32 const* offsets);
+void BindVertexBuffer(ID3D12GraphicsCommandList* command_list, GpuBuffer const * vertex_buffer, u8 slot, u32 offset);
+void BindVertexBuffers(ID3D12GraphicsCommandList* command_list, GpuBuffer const ** vertex_buffers, u8 slot, u8 count, u32 const* offsets);
 void BindIndexBuffer(ID3D12GraphicsCommandList* command_list, GpuBuffer const* index_buffer, u32 offset);
 void DrawMesh(Mesh const* mesh, ID3D12GraphicsCommandList* command_list);

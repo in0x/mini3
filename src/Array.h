@@ -9,7 +9,9 @@ public:
 	template<typename T>
 	struct ConstIterator
 	{
-		T* elem_ptr;
+		ConstIterator(T const* ptr) : elem_ptr(ptr) {}
+
+		T const* elem_ptr;
 
 		operator T const*()
 		{
@@ -75,16 +77,16 @@ public:
 
 	ConstIterator<T> begin() const
 	{
-		return { m_data };
+		return ConstIterator<T>( m_data );
 	}
 
 	ConstIterator<T> end() const
 	{
-		return { m_data + m_size };
+		return ConstIterator<T>( &m_data[m_size] );
 	}
 
 private:
-	static_assert(std::is_pod<T>::value, "T must be pod!");
+	static_assert(std::is_trivially_copyable<T>::value, "T must be pod-like type!");
 
 	T m_data[Capacity];
 	u32 m_size;

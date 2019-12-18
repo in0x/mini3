@@ -15,7 +15,7 @@ void MiniApp::Init()
 	__super::Init();
 
 	m_gpu_device = new GpuDeviceDX12();
-	m_gpu_device->Init(GetNativeHandle(), GpuDeviceDX12::ENABLED_DEBUG_LAYER | GpuDeviceDX12::ALLOW_TEARING);
+	m_gpu_device->Init(GetNativeHandle(), GpuDeviceDX12::InitFlags::Enable_Debug_Layer | GpuDeviceDX12::InitFlags::Allow_Tearing);
 }
 
 bool MiniApp::Update()

@@ -4,6 +4,7 @@
 #include <assert.h>
 #include <stdint.h>
 #include <stdarg.h>
+#include <atomic>
 
 typedef uint8_t   u8;
 typedef uint16_t u16;
@@ -80,7 +81,6 @@ void DebugPrintf(char const* file, int line, char const* fmt, Log::Category cate
 #define ASSERT_RESULT_F(hr, format, ...) ASSERT_F(SUCCEEDED(hr), format, __VA_ARGS__)
 #define ASSERT_FAIL() assert(false)
 #define ASSERT_FAIL_F(format, ...) ASSERT_F(false, format, __VA_ARGS__)
-#define VERIFY(x) assert(x);
 #define DEBUG_CODE(x) x
 #else
 #define ASSERT(x) 
@@ -89,7 +89,6 @@ void DebugPrintf(char const* file, int line, char const* fmt, Log::Category cate
 #define ASSERT_RESULT_F(hr, format, ...)
 #define ASSERT_FAIL()
 #define ASSERT_FAIL_F(format, ...)
-#define VERIFY(x) x;
 #define DEBUG_CODE(x)
 #endif
 
