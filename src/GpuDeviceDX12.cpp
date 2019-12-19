@@ -454,10 +454,7 @@ void GpuDeviceDX12::BeginPresent()
 		cmdlist->OMSetRenderTargets(1, &rtvDescriptor, FALSE, &dsvDescriptor); // todo: do we need this?
 		cmdlist->ClearRenderTargetView(rtvDescriptor, blueViolet, 0, nullptr);
 		cmdlist->ClearDepthStencilView(dsvDescriptor, D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, 0, nullptr);
-	}
-	
-	// Transition the render target to the state that allows it to be presented to the display.
-	TransitionBarrier(GetCurrentRenderTarget(), ResourceState::Render_Target, ResourceState::Present);
+	}	
 }
 
 void GpuDeviceDX12::EndPresent()
@@ -466,12 +463,16 @@ void GpuDeviceDX12::EndPresent()
 	IDXGISwapChain3* swapchain = GetSwapChain();
 	ID3D12Device* device = GetD3DDevice();
 
+	// Transition the render target to the state that allows it to be presented to the display.
+	TransitionBarrier(GetCurrentRenderTarget(), ResourceState::Render_Target, ResourceState::Present);
+
 	FrameResource* frame_resources = GetFrameResources();
 	frame_resources->resource_descriptors_gpu.Update(device, cmdlist);
 	frame_resources->sampler_descriptors_gpu.Update(device, cmdlist);
 
 	// Send the command list off to the GPU for processing.
-	m_cmd_queue_mng.GetGraphicsQueue()->ExecuteCommandList(cmdlist);
+	u64 end_of_frame_fence = m_cmd_queue_mng.GetGraphicsQueue()->ExecuteCommandList(cmdlist);
+	frame_resources->fence_value = end_of_frame_fence;
 
 	HRESULT hr = S_OK;
 	if (IsTearingAllowed())
@@ -500,15 +501,22 @@ void GpuDeviceDX12::EndPresent()
 		ASSERT_HR(hr);
 	}
 
-	Flush();
+	MoveToNextFrame();
 }
 
 void GpuDeviceDX12::Flush()
-	{
-	// If the next frame is not ready to be rendered yet, wait until it is ready.
+{
+	// Wait for all queues to become idle.
 	m_cmd_queue_mng.WaitForAllQueuesFinished();
+}
 
+void GpuDeviceDX12::MoveToNextFrame()
+{
 	m_frame_index = m_swap_chain->GetCurrentBackBufferIndex();
+	u64 current_fence_value = GetCurrentFenceValue();
+
+	// If this frame has not finished rendering yet, wait until it is ready.
+	m_cmd_queue_mng.GetGraphicsQueue()->WaitForFenceCpuBlocking(current_fence_value);
 
 	if (!m_dxgi_factory->IsCurrent())
 	{
@@ -698,8 +706,8 @@ void GpuDeviceDX12::Init(void* windowHandle, u32 initFlags)
 	m_resource_allocator.Create(device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 4096);
 	m_sampler_allocator.Create(device, D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER, 64);
 
-	m_buffer_upload_allocator.Create(device, 256 * 1024 * 1024);
-	m_texture_upload_allocator.Create(device, 256 * 1024 * 1024);
+	m_buffer_upload_allocator.Create(device, 256 * 1024 * 1024); // TODO: reset
+	m_texture_upload_allocator.Create(device, 256 * 1024 * 1024); // TODO: reset
 
 	createNullResources();
 }

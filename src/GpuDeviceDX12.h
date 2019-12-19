@@ -283,6 +283,7 @@ public:
 
 	void BeginPresent();
 	void EndPresent();
+	void MoveToNextFrame();
 	void Flush();
 	
 	void TransitionBarrier(ID3D12Resource* resources, ResourceState::Enum stateBefore, ResourceState::Enum stateAfter);
@@ -298,6 +299,7 @@ private:
 	inline ID3D12Resource*            GetCurrentRenderTarget() const { return m_frame_resource[m_frame_index].render_target.Get(); }
 	inline ID3D12CommandAllocator*    GetCommandAllocator() const { return m_frame_resource[m_frame_index].command_allocator.Get(); }
 	inline ID3D12GraphicsCommandList* GetCurrentCommandList() const { return m_frame_resource[m_frame_index].command_list.Get(); }
+	inline u64						  GetCurrentFenceValue() const { return m_frame_resource[m_frame_index].fence_value; }
 
 	void enableDebugLayer();
 	bool checkTearingSupport();
