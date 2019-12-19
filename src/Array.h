@@ -40,13 +40,6 @@ public:
 		}
 	};
 
-	Array() = default;
-
-	Array(Array<T, Capacity> const& other)
-	{
-		memcpy(m_data, other.m_data, Capacity * sizeof(T));
-	}
-
 	void Clear()
 	{
 		m_size = 0;

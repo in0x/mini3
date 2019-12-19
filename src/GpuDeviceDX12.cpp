@@ -1307,7 +1307,6 @@ void GpuDeviceDX12::createFrameResources()
 GpuBuffer GpuDeviceDX12::CreateBuffer(GpuBufferDesc const& desc, void* initial_data, u32 initial_data_bytes)
 {
 	GpuBuffer buffer;
-	MemZeroSafe(buffer);
 	buffer.desc = desc;
 
 	u32 alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
@@ -1362,7 +1361,7 @@ GpuBuffer GpuDeviceDX12::CreateBuffer(GpuBufferDesc const& desc, void* initial_d
 	{
 		D3D12_CONSTANT_BUFFER_VIEW_DESC cbv_desc = {};
 		cbv_desc.BufferLocation = buffer.resource->GetGPUVirtualAddress();
-		cbv_desc.SizeInBytes = aligned_size;
+		cbv_desc.SizeInBytes = static_cast<u32>(aligned_size);
 
 		buffer.cbv.ptr = m_resource_allocator.Allocate();
 		m_d3d_device->CreateConstantBufferView(&cbv_desc, buffer.cbv);

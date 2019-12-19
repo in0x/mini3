@@ -136,7 +136,7 @@ template<typename T>
 inline void MemZeroSafe(T& data)
 {
 	static_assert(std::is_trivially_copyable<T>::value, "Cannot memzero non-trivial type!");
-	memzero(&t, sizeof(T));
+	memzero(&data, sizeof(T));
 }
 
 inline ptrdiff_t GetAlignmentAdjustment(u8* raw, size_t alignment)

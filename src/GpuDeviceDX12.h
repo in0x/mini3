@@ -147,7 +147,7 @@ struct GpuBufferDesc
 
 struct GpuBuffer : public GpuResource
 {
-	D3D12_CPU_DESCRIPTOR_HANDLE cbv = {};
+	D3D12_CPU_DESCRIPTOR_HANDLE cbv;
 	GpuBufferDesc desc;
 };
 
