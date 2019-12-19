@@ -19,8 +19,6 @@ struct InputMessages
 	bool m_wants_to_quit;
 };
 
-using ScopedLock = std::lock_guard<std::mutex>;
-
 class IMessageQueueConsumer
 {
 public:

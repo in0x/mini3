@@ -4,7 +4,9 @@
 #include <assert.h>
 #include <stdint.h>
 #include <stdarg.h>
+#include <thread>
 #include <atomic>
+#include <mutex>
 
 typedef uint8_t   u8;
 typedef uint16_t u16;
@@ -19,11 +21,11 @@ typedef int64_t s64;
 typedef float f32;
 typedef double f64;
 
-//constexpr size_t S8_MAX
-
 static constexpr size_t MAX_DEBUG_MSG_SIZE = 1024;
 thread_local static char g_debugFmtBuffer[MAX_DEBUG_MSG_SIZE];
 thread_local static char g_debugMsgBuffer[MAX_DEBUG_MSG_SIZE];
+
+using ScopedLock = std::lock_guard<std::mutex>;
 
 static constexpr size_t BytesToKiloBytes(size_t bytes)
 {
@@ -74,25 +76,42 @@ void DebugPrintf(char const* file, int line, char const* fmt, Log::Category cate
 #define LOG(format, ...)
 #endif
 
+#define UNUSED(x) (void)(x)
+
 #ifdef _DEBUG
 #define ASSERT(x) assert(x)
 #define ASSERT_F(x, format, ...) if (!(x)) { LOG(Log::Assert, format, __VA_ARGS__); assert(x); }
-#define ASSERT_RESULT(hr) assert(SUCCEEDED(hr))
-#define ASSERT_RESULT_F(hr, format, ...) ASSERT_F(SUCCEEDED(hr), format, __VA_ARGS__)
+#define ASSERT_HR(hr) assert(SUCCEEDED(hr))
+#define ASSERT_HR_F(hr, format, ...) ASSERT_F(SUCCEEDED(hr), format, __VA_ARGS__)
 #define ASSERT_FAIL() assert(false)
 #define ASSERT_FAIL_F(format, ...) ASSERT_F(false, format, __VA_ARGS__)
 #define DEBUG_CODE(x) x
 #else
 #define ASSERT(x) 
 #define ASSERT_F(x, format, ...)  
-#define ASSERT_RESULT(hr)
-#define ASSERT_RESULT_F(hr, format, ...)
+#define ASSERT_HR(hr) UNUSED(hr)
+#define ASSERT_HR_F(hr, format, ...) UNUSED(hr)
 #define ASSERT_FAIL()
 #define ASSERT_FAIL_F(format, ...)
 #define DEBUG_CODE(x)
 #endif
 
-#define UNUSED(x) (void)(x)
+#ifdef _DEBUG
+	#define VERIFY(x)		\
+	{						\
+		bool result = (x);	\
+		ASSERT(result);		\
+	}
+
+	#define VERIFY_HR(x)	\
+	{						\
+		HRESULT hr = (x);	\
+		ASSERT_HR(hr);		\
+	} 
+#else
+	#define VERIFY(x) x		
+	#define VERIFY_HR(x) x
+#endif
 
 #define ARRAY_SIZE(x) _countof(x)
 

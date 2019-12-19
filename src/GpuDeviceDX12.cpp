@@ -35,13 +35,13 @@ void DescriptorTableFrameAllocator::Create(ID3D12Device* device, D3D12_DESCRIPTO
 	heap_desc.NumDescriptors = m_item_count * ShaderStage::Count;
 
 	HRESULT hr = device->CreateDescriptorHeap(&heap_desc, IID_PPV_ARGS(&m_heap_cpu));
-	ASSERT_RESULT(hr);
+	ASSERT_HR(hr);
 
 	heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
 	heap_desc.NumDescriptors = m_item_count * ShaderStage::Count * max_rename_count;
 
 	hr = device->CreateDescriptorHeap(&heap_desc, IID_PPV_ARGS(&m_heap_gpu));
-	ASSERT_RESULT(hr);
+	ASSERT_HR(hr);
 
 	m_descriptor_type = type;
 	m_item_size = device->GetDescriptorHandleIncrementSize(type);
@@ -177,7 +177,7 @@ void ResourceAllocator::Create(ID3D12Device* device, size_t size_bytes)
 		IID_PPV_ARGS(&m_resource)
 	);
 
-	ASSERT_RESULT(hr);
+	ASSERT_HR(hr);
 
 	// Will not perform cpu reads from the resource.
 	void* data_ptr = nullptr;
@@ -220,7 +220,7 @@ void DescriptorAllocator::Create(ID3D12Device* device, D3D12_DESCRIPTOR_HEAP_TYP
 	desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
 
 	HRESULT hr = device->CreateDescriptorHeap(&desc, IID_PPV_ARGS(&m_heap));
-	ASSERT_RESULT(hr);
+	ASSERT_HR(hr);
 
 	m_item_size = device->GetDescriptorHandleIncrementSize(type);
 	m_item_count = 0;
@@ -238,6 +238,166 @@ u64 DescriptorAllocator::Allocate()
 	return (start_ptr + offset);
 }
 
+CommandQueue::CommandQueue()
+	: m_cmd_queue(nullptr)
+	, m_fence(nullptr)
+	, m_next_fence_value((u64)-1)
+	, m_last_completed_fence_value((u64)-1)
+{}
+
+void CommandQueue::Create(ID3D12Device* device, D3D12_COMMAND_LIST_TYPE cmd_type)
+{
+	m_queue_type = cmd_type;
+
+	// We store queue_type in the upper bytes to be know
+	// what queue type the fence value came from.
+	m_next_fence_value = ((u64)m_queue_type << 56) + 1;
+	m_last_completed_fence_value = ((u64)m_queue_type << 56);
+
+	D3D12_COMMAND_QUEUE_DESC queue_desc = {};
+	queue_desc.Type = m_queue_type;
+	queue_desc.NodeMask = 0;
+	HRESULT hr = device->CreateCommandQueue(&queue_desc, IID_PPV_ARGS(&m_cmd_queue));
+	ASSERT_HR(hr);
+
+	hr = device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&m_fence));
+	ASSERT_HR(hr);
+
+	m_fence->Signal(m_last_completed_fence_value);
+
+	m_fence_event_handle = CreateEventEx(NULL, false, false, EVENT_ALL_ACCESS);
+	ASSERT(m_fence_event_handle != INVALID_HANDLE_VALUE);
+}
+
+void CommandQueue::Release()
+{
+	CloseHandle(m_fence_event_handle);
+
+	m_fence->Release();
+	m_fence = nullptr;
+	m_cmd_queue->Release();
+	m_cmd_queue = nullptr;
+}
+
+#ifdef _DEBUG
+bool CommandQueue::IsFenceFromThisQueue(u64 fence)
+{
+	return ((D3D12_COMMAND_LIST_TYPE)(fence >> 56) == m_queue_type);	
+}
+#endif // _DEBUG
+
+bool CommandQueue::IsFenceComplete(u64 fence_value)
+{
+	ASSERT(IsFenceFromThisQueue(fence_value));
+
+	if (fence_value > m_last_completed_fence_value)
+	{
+		FetchCurrentFenceValue();
+	}
+
+	return fence_value <= m_last_completed_fence_value;
+}
+
+void CommandQueue::InsertGpuWait(u64 fence_value)
+{
+	ASSERT(IsFenceFromThisQueue(fence_value));
+	m_cmd_queue->Wait(m_fence.Get(), fence_value);
+}
+
+void CommandQueue::InsertGpuWaitForOtherQueue(CommandQueue* other_queue, u64 fence_value)
+{
+	ASSERT(IsFenceFromThisQueue(fence_value));
+	m_cmd_queue->Wait(other_queue->GetFence(), fence_value);
+}
+
+void CommandQueue::InsertGpuWaitForOtherQueue(CommandQueue* other_queue)
+{
+	m_cmd_queue->Wait(other_queue->GetFence(), other_queue->GetNextFenceValue() - 1);
+}
+
+void CommandQueue::WaitForFenceCpuBlocking(u64 fence_value)
+{
+	ASSERT(IsFenceFromThisQueue(fence_value));
+	if (IsFenceComplete(fence_value))
+	{
+		return;
+	}
+
+	ScopedLock lock(m_event_mutex);
+
+	m_fence->SetEventOnCompletion(fence_value, m_fence_event_handle);
+	WaitForSingleObjectEx(m_fence_event_handle, INFINITE, false);
+	m_last_completed_fence_value = fence_value;
+}
+
+u64 CommandQueue::FetchCurrentFenceValue()
+{
+	m_last_completed_fence_value = max(m_last_completed_fence_value, m_fence->GetCompletedValue());
+	return m_last_completed_fence_value;
+}
+
+u64 CommandQueue::ExecuteCommandList(ID3D12CommandList* cmd_list)
+{
+	HRESULT closed = static_cast<ID3D12GraphicsCommandList*>(cmd_list)->Close();
+	ASSERT_HR(closed);
+
+	m_cmd_queue->ExecuteCommandLists(1, &cmd_list);
+
+	ScopedLock lock(m_fence_mutex);
+	m_cmd_queue->Signal(m_fence.Get(), m_next_fence_value);
+
+	return m_next_fence_value++;
+}
+
+void CommandQueueManager::Create(ID3D12Device* device)
+{
+	m_graphics.Create(device, D3D12_COMMAND_LIST_TYPE_DIRECT);
+	m_compute.Create(device, D3D12_COMMAND_LIST_TYPE_COMPUTE);
+	m_copy.Create(device, D3D12_COMMAND_LIST_TYPE_COPY);
+}
+
+void CommandQueueManager::Release()
+{
+	m_graphics.Release();
+	m_compute.Release();
+	m_copy.Release();
+}
+
+CommandQueue* CommandQueueManager::GetQueue(D3D12_COMMAND_LIST_TYPE type)
+{
+	switch (type)
+	{
+	case D3D12_COMMAND_LIST_TYPE_DIRECT:
+		return GetGraphicsQueue();
+	case D3D12_COMMAND_LIST_TYPE_COMPUTE:
+		return GetComputeQueue();
+	case D3D12_COMMAND_LIST_TYPE_COPY:
+		return GetCopyQueue();
+	default:
+		ASSERT_FAIL();
+		return nullptr;
+	}
+}
+
+bool CommandQueueManager::IsFenceComplete(u64 fence_value)
+{
+	CommandQueue* queue = GetQueue((D3D12_COMMAND_LIST_TYPE)(fence_value >> 56));
+	return queue->IsFenceComplete(fence_value);
+}
+
+void CommandQueueManager::WaitForFenceCpuBlocking(u64 fence_value)
+{
+	CommandQueue* queue = GetQueue((D3D12_COMMAND_LIST_TYPE)(fence_value >> 56));
+	queue->WaitForFenceCpuBlocking(fence_value);
+}
+
+void CommandQueueManager::WaitForAllQueuesFinished()
+{
+	m_graphics.WaitForQueueFinishedCpuBlocking();
+	m_compute.WaitForQueueFinishedCpuBlocking();
+	m_copy.WaitForQueueFinishedCpuBlocking();
+}
+
 void GpuDeviceDX12::BeginPresent()
 {
 	FrameResource* frame_resources = GetFrameResources();
@@ -246,10 +406,10 @@ void GpuDeviceDX12::BeginPresent()
 	ID3D12CommandAllocator* allocator = GetCommandAllocator();
 
 	HRESULT hr = allocator->Reset();
-	ASSERT_RESULT(hr);
+	ASSERT_HR(hr);
 
 	hr = cmdlist->Reset(allocator, nullptr);
-	ASSERT_RESULT(hr);
+	ASSERT_HR(hr);
 
 	ID3D12DescriptorHeap* heaps[] = 
 	{
@@ -303,7 +463,6 @@ void GpuDeviceDX12::BeginPresent()
 void GpuDeviceDX12::EndPresent()
 {
 	ID3D12GraphicsCommandList* cmdlist = GetCurrentCommandList();
-	ID3D12CommandQueue* cmdqueue = GetCommandQueue();
 	IDXGISwapChain3* swapchain = GetSwapChain();
 	ID3D12Device* device = GetD3DDevice();
 
@@ -312,12 +471,9 @@ void GpuDeviceDX12::EndPresent()
 	frame_resources->sampler_descriptors_gpu.Update(device, cmdlist);
 
 	// Send the command list off to the GPU for processing.
-	HRESULT hr = cmdlist->Close();
-	ASSERT_RESULT(hr);
+	m_cmd_queue_mng.GetGraphicsQueue()->ExecuteCommandList(cmdlist);
 
-	ID3D12CommandList* ppCommandLists[] = { cmdlist };
-	cmdqueue->ExecuteCommandLists(_countof(ppCommandLists), ppCommandLists);
-
+	HRESULT hr = S_OK;
 	if (IsTearingAllowed())
 	{
 		// Recommended to always use tearing if supported when using a sync interval of 0.
@@ -337,48 +493,20 @@ void GpuDeviceDX12::EndPresent()
 	{
 		HRESULT removedReason = (hr == DXGI_ERROR_DEVICE_REMOVED) ? GetD3DDevice()->GetDeviceRemovedReason() : hr;
 		ASSERT_FAIL_F("Device Lost on ResizeBuffers: Reason code 0x%08X\n", removedReason);
-
+		UNUSED(removedReason);
 	}
 	else
 	{
-		ASSERT_RESULT(hr);
+		ASSERT_HR(hr);
 	}
 
 	Flush();
 }
 
-void GpuDeviceDX12::WaitForFenceValue(ID3D12Fence* fence, uint64_t fenceValue, HANDLE fenceEvent, u32 durationMS)
-{
-	// TODO(pgPW): Add hang detection here. Set timer, wait interval, if not completed, assert.
-
-	if (fence->GetCompletedValue() < fenceValue)
-	{
-		HRESULT hr = fence->SetEventOnCompletion(fenceValue, fenceEvent);
-		ASSERT_RESULT(hr);
-		WaitForSingleObjectEx(fenceEvent, durationMS, FALSE);
-	}
-}
-
-u64 GpuDeviceDX12::Signal(ID3D12CommandQueue* commandQueue, ID3D12Fence* fence, u64 fenceValue)
-{	
-	HRESULT hr = commandQueue->Signal(fence, fenceValue);
-	ASSERT_RESULT(hr);
-
-	return fenceValue + 1;
-}
-
 void GpuDeviceDX12::Flush()
 	{
-	// Prepare to render the next frame.
-	ID3D12Fence* fence = GetFence();
-	u64 currentFenceValue = GetCurrentFenceValue();
-	u64 nextFenceValue = Signal(GetCommandQueue(), fence, currentFenceValue);
-
 	// If the next frame is not ready to be rendered yet, wait until it is ready.
-	WaitForFenceValue(fence, currentFenceValue, GetFenceEvent());
-
-	// Set the fence value for the next frame.
-	m_fence_value = nextFenceValue;
+	m_cmd_queue_mng.WaitForAllQueuesFinished();
 
 	m_frame_index = m_swap_chain->GetCurrentBackBufferIndex();
 
@@ -386,7 +514,7 @@ void GpuDeviceDX12::Flush()
 	{
 		// Output information is cached on the DXGI Factory. If it is stale we need to create a new factory.
 		HRESULT hr = CreateDXGIFactory2(m_dxgi_factory_flags, IID_PPV_ARGS(m_dxgi_factory.ReleaseAndGetAddressOf()));
-		ASSERT_RESULT(hr);
+		ASSERT_HR(hr);
 	}
 }
 
@@ -459,7 +587,7 @@ IDXGIAdapter1* getFirstAvailableHardwareAdapter(ComPtr<IDXGIFactory4> dxgiFactor
 
 		DXGI_ADAPTER_DESC1 desc = {};
 		HRESULT hr = adapter->GetDesc1(&desc);
-		ASSERT_RESULT(hr);
+		ASSERT_HR(hr);
 
 		if (desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE)
 		{
@@ -525,15 +653,13 @@ void GpuDeviceDX12::Init(void* windowHandle, u32 initFlags)
 	m_output_size = { 0, 0, 1, 1 };
 	m_color_space = DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709;
 
-	m_fence_value = 0;
-
 	if (bEnableDebugLayer)
 	{
 		enableDebugLayer();
 	}
 
 	HRESULT createFactoryResult = CreateDXGIFactory2(m_dxgi_factory_flags, IID_PPV_ARGS(m_dxgi_factory.ReleaseAndGetAddressOf()));
-	ASSERT_RESULT(createFactoryResult);
+	ASSERT_HR(createFactoryResult);
 
 	if (bWantAllowTearing)
 	{
@@ -549,7 +675,7 @@ void GpuDeviceDX12::Init(void* windowHandle, u32 initFlags)
 
 	createDevice(bEnableDebugLayer);
 	checkFeatureLevel();
-	createCommandQueue();
+	m_cmd_queue_mng.Create(GetD3DDevice());
 
 	m_backbuffer_width = max(static_cast<u32>(m_output_size.right - m_output_size.left), 1u);
 	m_backbuffer_height = max(static_cast<u32>(m_output_size.bottom - m_output_size.top), 1u);
@@ -563,7 +689,6 @@ void GpuDeviceDX12::Init(void* windowHandle, u32 initFlags)
 	createDepthBuffer(m_backbuffer_width, m_backbuffer_height);
 	UpdateViewportScissorRect(m_backbuffer_width, m_backbuffer_height);
 
-	createEndOfFrameFence();
 	createGraphicsRootSig();
 	createComputeRootSig();
 
@@ -683,10 +808,10 @@ void GpuDeviceDX12::createGraphicsRootSig()
 	ID3DBlob* root_sig_error;
 		
 	HRESULT hr = D3D12SerializeRootSignature(&root_sig_desc, D3D_ROOT_SIGNATURE_VERSION_1_0, &root_sig_blob, &root_sig_error);
-	ASSERT_RESULT(hr);
+	ASSERT_HR(hr);
 		
 	hr = m_d3d_device->CreateRootSignature(0, root_sig_blob->GetBufferPointer(), root_sig_blob->GetBufferSize(), IID_PPV_ARGS(&m_graphics_root_sig));
-	ASSERT_RESULT(hr);
+	ASSERT_HR(hr);
 }
 
 void GpuDeviceDX12::createComputeRootSig()
@@ -741,10 +866,10 @@ void GpuDeviceDX12::createComputeRootSig()
 	ID3DBlob* rootSigError;
 	
 	HRESULT hr = D3D12SerializeRootSignature(&rootSigDesc, D3D_ROOT_SIGNATURE_VERSION_1_0, &rootSigBlob, &rootSigError);
-	ASSERT_RESULT(hr);
+	ASSERT_HR(hr);
 
 	hr = m_d3d_device->CreateRootSignature(0, rootSigBlob->GetBufferPointer(), rootSigBlob->GetBufferSize(), IID_PPV_ARGS(&m_compute_root_sig));
-	ASSERT_RESULT(hr);
+	ASSERT_HR(hr);
 }
 
 DXGI_FORMAT formatSrgbToLinear(DXGI_FORMAT fmt)
@@ -800,7 +925,7 @@ void GpuDeviceDX12::createSwapChain(u32 width, u32 height, DXGI_FORMAT format)
 	ComPtr<IDXGISwapChain1> swapChain;
 
 	HRESULT hr = m_dxgi_factory->CreateSwapChainForHwnd(
-		m_command_queue.Get(),
+		m_cmd_queue_mng.GetGraphicsQueue()->GetQueue(),
 		m_window,
 		&swapChainDesc,
 		&fsSwapChainDesc,
@@ -808,14 +933,14 @@ void GpuDeviceDX12::createSwapChain(u32 width, u32 height, DXGI_FORMAT format)
 		swapChain.GetAddressOf()
 	);
 
-	ASSERT_RESULT(hr);
+	ASSERT_HR(hr);
 
 	hr = swapChain.As(&m_swap_chain);
-	ASSERT_RESULT(hr);
+	ASSERT_HR(hr);
 
 	// This class does not support exclusive full-screen mode and prevents DXGI from responding to the ALT+ENTER shortcut
 	hr = m_dxgi_factory->MakeWindowAssociation(m_window, DXGI_MWA_NO_ALT_ENTER);
-	ASSERT_RESULT(hr);
+	ASSERT_HR(hr);
 }
 
 void GpuDeviceDX12::updateColorSpace()
@@ -829,15 +954,15 @@ void GpuDeviceDX12::updateColorSpace()
 
 	ComPtr<IDXGIOutput> output;
 	hr = m_swap_chain->GetContainingOutput(output.GetAddressOf());
-	ASSERT_RESULT(hr);
+	ASSERT_HR(hr);
 
 	ComPtr<IDXGIOutput6> output6;
 	hr = output.As(&output6);
-	ASSERT_RESULT(hr);
+	ASSERT_HR(hr);
 
 	DXGI_OUTPUT_DESC1 desc = {};
 	hr = output6->GetDesc1(&desc);
-	ASSERT_RESULT(hr);
+	ASSERT_HR(hr);
 
 	bIsDisplayHDR10 = desc.ColorSpace == DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020;
 #endif
@@ -875,7 +1000,7 @@ void GpuDeviceDX12::updateColorSpace()
 	if (SUCCEEDED(hr) && (colorSpaceSupport & DXGI_SWAP_CHAIN_COLOR_SPACE_SUPPORT_FLAG_PRESENT))
 	{
 		hr = m_swap_chain->SetColorSpace1(colorSpace);
-		ASSERT_RESULT(hr);
+		ASSERT_HR(hr);
 	}
 
 }
@@ -936,7 +1061,7 @@ void GpuDeviceDX12::createDepthBuffer(u32 width, u32 height)
 		IID_PPV_ARGS(m_depth_stencil.ReleaseAndGetAddressOf())
 	);
 
-	ASSERT_RESULT(hr);
+	ASSERT_HR(hr);
 
 	m_depth_stencil->SetName(L"Depth stencil");
 
@@ -963,6 +1088,7 @@ void GpuDeviceDX12::UpdateViewportScissorRect(u32 width, u32 height)
 
 void GpuDeviceDX12::enableDebugLayer()
 {
+#ifdef _DEBUG
 	ComPtr<ID3D12Debug> debugController;
 	if (SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(debugController.GetAddressOf()))))
 	{
@@ -981,6 +1107,7 @@ void GpuDeviceDX12::enableDebugLayer()
 		dxgiInfoQueue->SetBreakOnSeverity(DXGI_DEBUG_ALL, DXGI_INFO_QUEUE_MESSAGE_SEVERITY_ERROR, true);
 		dxgiInfoQueue->SetBreakOnSeverity(DXGI_DEBUG_ALL, DXGI_INFO_QUEUE_MESSAGE_SEVERITY_CORRUPTION, true);
 	}
+#endif // _DEBUG
 }
 
 bool GpuDeviceDX12::checkTearingSupport()
@@ -1069,9 +1196,11 @@ void GpuDeviceDX12::createDevice(bool bEnableDebugLayer)
 			filter.DenyList.pIDList = DenyIds;
 
 			HRESULT hr = d3dInfoQueue->AddStorageFilterEntries(&filter);
-			ASSERT_RESULT(hr);
+			ASSERT_HR(hr);
 		}
 	}
+#else
+	UNUSED(bEnableDebugLayer);
 #endif //_DEBUG
 }
 
@@ -1102,18 +1231,6 @@ void GpuDeviceDX12::checkFeatureLevel()
 	}
 }
 
-void GpuDeviceDX12::createCommandQueue()
-{
-	D3D12_COMMAND_QUEUE_DESC queueDesc = {};
-	queueDesc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
-	queueDesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
-
-	HRESULT queueCreated = m_d3d_device->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(m_command_queue.ReleaseAndGetAddressOf()));
-	ASSERT_RESULT(queueCreated);
-
-	m_command_queue->SetName(L"DeviceResources");
-}
-
 void GpuDeviceDX12::createDescriptorHeaps()
 {
 	// Render targets
@@ -1122,7 +1239,7 @@ void GpuDeviceDX12::createDescriptorHeaps()
 	rtvDescriptorHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
 
 	HRESULT descrHeapCreated = m_d3d_device->CreateDescriptorHeap(&rtvDescriptorHeapDesc, IID_PPV_ARGS(m_rtv_descriptor_heap.ReleaseAndGetAddressOf()));
-	ASSERT_RESULT(descrHeapCreated);
+	ASSERT_HR(descrHeapCreated);
 
 	m_rtv_descriptor_heap->SetName(L"DeviceResources");
 	m_rtv_descriptor_size = m_d3d_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
@@ -1144,7 +1261,7 @@ static ComPtr<ID3D12CommandAllocator> CreateCommandAllocator(ID3D12Device* devic
 	ComPtr<ID3D12CommandAllocator> cmd_allocator = nullptr;
 
 	HRESULT createdAllocator = device->CreateCommandAllocator(type, IID_PPV_ARGS(&cmd_allocator));
-	ASSERT_RESULT(createdAllocator);
+	ASSERT_HR(createdAllocator);
 
 	wchar_t name[64] = {};
 	swprintf_s(name, L"cmdallocator_frame_%u", frame_idx);
@@ -1164,10 +1281,10 @@ static ComPtr<ID3D12GraphicsCommandList> CreateCommandList(ID3D12Device* device,
 		nullptr,
 		IID_PPV_ARGS(&cmd_list));
 
-	ASSERT_RESULT(cmdListCreated);
+	ASSERT_HR(cmdListCreated);
 
 	HRESULT closed = cmd_list->Close();
-	ASSERT_RESULT(closed);
+	ASSERT_HR(closed);
 
 	wchar_t name[64] = {};
 	swprintf_s(name, L"cmdlist_frame_%u", frame_idx);
@@ -1212,15 +1329,24 @@ void GpuDeviceDX12::createFrameResources()
 	}
 }
 
-void GpuDeviceDX12::createEndOfFrameFence()
+void WaitForFenceValue(ID3D12Fence* fence, uint64_t fenceValue, HANDLE fenceEvent, u32 durationMS)
 {
-	// Create a fence for tracking GPU execution progress.
-	HRESULT createdFence = m_d3d_device->CreateFence(m_fence_value, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(m_fence.ReleaseAndGetAddressOf()));
-	ASSERT_RESULT(createdFence);
-	m_fence->SetName(L"DeviceResources");
+	// TODO(pgPW): Add hang detection here. Set timer, wait interval, if not completed, assert.
 
-	m_fence_event.Attach(CreateEvent(nullptr, FALSE, FALSE, nullptr));
-	ASSERT(m_fence_event.IsValid());
+	if (fence->GetCompletedValue() < fenceValue)
+	{
+		HRESULT hr = fence->SetEventOnCompletion(fenceValue, fenceEvent);
+		ASSERT_HR(hr);
+		WaitForSingleObjectEx(fenceEvent, durationMS, FALSE);
+	}
+}
+
+u64 Signal(ID3D12CommandQueue* commandQueue, ID3D12Fence* fence, u64 fenceValue)
+{
+	HRESULT hr = commandQueue->Signal(fence, fenceValue);
+	ASSERT_HR(hr);
+
+	return fenceValue + 1;
 }
 
 void BindVertexBuffer(ID3D12GraphicsCommandList* command_list, GpuBuffer const * vertex_buffer, u8 slot, u32 offset)

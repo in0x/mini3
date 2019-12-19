@@ -145,6 +145,70 @@ struct Mesh
 	Array<SubMesh, 8> submeshes;
 };
 
+class CommandQueue
+{
+public:
+	CommandQueue();
+
+	void Create(ID3D12Device* device, D3D12_COMMAND_LIST_TYPE cmd_type);
+	void Release();
+
+	bool IsFenceComplete(u64 fence_value);
+	void InsertGpuWait(u64 fence_value);
+	void InsertGpuWaitForOtherQueue(CommandQueue* other_queue, u64 fence_value);
+	void InsertGpuWaitForOtherQueue(CommandQueue* other_queue);
+
+	void WaitForFenceCpuBlocking(u64 fence_value);
+	void WaitForQueueFinishedCpuBlocking() { WaitForFenceCpuBlocking(m_next_fence_value - 1); }
+	
+	ID3D12CommandQueue* GetQueue() { return m_cmd_queue.Get(); }
+
+	u64 FetchCurrentFenceValue();
+	u64 GetLastCompletedFence() const { return m_last_completed_fence_value; }
+	u64 GetNextFenceValue() const { return m_next_fence_value; }
+	ID3D12Fence* GetFence() { return m_fence.Get(); }
+
+	u64 ExecuteCommandList(ID3D12CommandList* cmd_list);
+
+private:
+#ifdef _DEBUG
+	bool CommandQueue::IsFenceFromThisQueue(u64 fence);
+#endif
+
+	ComPtr<ID3D12CommandQueue> m_cmd_queue;
+	D3D12_COMMAND_LIST_TYPE m_queue_type;
+
+	std::mutex m_fence_mutex;
+	std::mutex m_event_mutex;
+
+	ComPtr<ID3D12Fence> m_fence;
+	u64 m_next_fence_value;
+	u64 m_last_completed_fence_value;
+	HANDLE m_fence_event_handle;
+};
+
+class CommandQueueManager
+{
+public:
+	void Create(ID3D12Device* device);
+	void Release();
+
+	CommandQueue* GetGraphicsQueue() { return &m_graphics; }
+	CommandQueue* GetComputeQueue() { return &m_compute; }
+	CommandQueue* GetCopyQueue() { return &m_copy; }
+
+	CommandQueue* GetQueue(D3D12_COMMAND_LIST_TYPE type);
+
+	bool IsFenceComplete(u64 fence_value);
+	void WaitForFenceCpuBlocking(u64 fence_value);
+	void WaitForAllQueuesFinished();
+
+private:
+	CommandQueue m_graphics;
+	CommandQueue m_compute;
+	CommandQueue m_copy;
+};
+
 class DescriptorTableFrameAllocator
 {
 public:
@@ -220,22 +284,16 @@ public:
 	void BeginPresent();
 	void EndPresent();
 	void Flush();
-	u64 Signal(ID3D12CommandQueue* commandQueue, ID3D12Fence* fence, u64 fenceValue);
-	void WaitForFenceValue(ID3D12Fence* fence, uint64_t fenceValue, HANDLE fenceEvent, u32 durationMS = INFINITE);
-
+	
 	void TransitionBarrier(ID3D12Resource* resources, ResourceState::Enum stateBefore, ResourceState::Enum stateAfter);
 	void TransitionBarriers(ID3D12Resource** resources, u8 numBarriers, ResourceState::Enum stateBefore, ResourceState::Enum stateAfter);
 
 private:
 	inline ID3D12Device*              GetD3DDevice() const { return m_d3d_device.Get(); }
 	inline IDXGISwapChain3*           GetSwapChain() const { return m_swap_chain.Get(); }
-	inline u64						  GetCurrentFenceValue() const { return m_fence_value; }
-	inline ID3D12CommandQueue*        GetCommandQueue() const { return m_command_queue.Get(); }
-	inline ID3D12Fence*				  GetFence() const { return m_fence.Get(); }
-	inline HANDLE					  GetFenceEvent() { return m_fence_event.Get(); }
 	inline D3D12_VIEWPORT             GetScreenViewport() const { return m_screen_viewport; }
 	inline D3D12_RECT                 GetScissorRect() const { return m_scissor_rect; }
-	inline UINT                       GetCurrentFrameIndex() const { return m_frame_index; }
+	inline u32	                      GetCurrentFrameIndex() const { return m_frame_index; }
 
 	inline ID3D12Resource*            GetCurrentRenderTarget() const { return m_frame_resource[m_frame_index].render_target.Get(); }
 	inline ID3D12CommandAllocator*    GetCommandAllocator() const { return m_frame_resource[m_frame_index].command_allocator.Get(); }
@@ -245,11 +303,7 @@ private:
 	bool checkTearingSupport();
 	void createDevice(bool bEnableDebugLayer);
 	void checkFeatureLevel();
-	void createCommandQueue();
 	void createDescriptorHeaps();
-	void createCommandAllocators();
-	void createCommandList();
-	void createEndOfFrameFence();
 	void createGraphicsRootSig();
 	void createComputeRootSig();
 	void createNullResources();
@@ -270,18 +324,13 @@ private:
 	u32									m_backbuffer_height;
 
 	ComPtr<ID3D12Device>                m_d3d_device;
-	ComPtr<ID3D12CommandQueue>          m_command_queue;
+	CommandQueueManager					m_cmd_queue_mng;
 
 	// Swap chain objects.
 	ComPtr<IDXGIFactory4>               m_dxgi_factory;
 	ComPtr<IDXGISwapChain3>             m_swap_chain;
 	ComPtr<ID3D12Resource>              m_depth_stencil;
-
-	// Presentation fence objects.
-	ComPtr<ID3D12Fence>                 m_fence;
-	u64									m_fence_value;
-	Microsoft::WRL::Wrappers::Event     m_fence_event;
-
+	
 	// Direct3D rendering objects.
 	ComPtr<ID3D12DescriptorHeap>        m_rtv_descriptor_heap;
 	ComPtr<ID3D12DescriptorHeap>        m_dsv_descriptor_heap;
@@ -335,6 +384,8 @@ private:
 	ResourceAllocator m_texture_upload_allocator;
 };
 
+u64 Signal(ID3D12CommandQueue* commandQueue, ID3D12Fence* fence, u64 fenceValue);
+void WaitForFenceValue(ID3D12Fence* fence, uint64_t fenceValue, HANDLE fenceEvent, u32 durationMS = INFINITE);
 void BindVertexBuffer(ID3D12GraphicsCommandList* command_list, GpuBuffer const * vertex_buffer, u8 slot, u32 offset);
 void BindVertexBuffers(ID3D12GraphicsCommandList* command_list, GpuBuffer const ** vertex_buffers, u8 slot, u8 count, u32 const* offsets);
 void BindIndexBuffer(ID3D12GraphicsCommandList* command_list, GpuBuffer const* index_buffer, u32 offset);

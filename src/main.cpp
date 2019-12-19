@@ -3,8 +3,6 @@
 #include "Win32.h"
 #include "Win32Window.h"
 #include "MiniApp.h"
-#include <thread>
-#include <atomic>
 
 std::atomic_int g_appthread_has_exited = 0;
 
