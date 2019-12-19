@@ -135,7 +135,18 @@ void DescriptorTableFrameAllocator::Update(ID3D12Device* device, ID3D12GraphicsC
 		// Bind the table to the root signature.
 		D3D12_GPU_DESCRIPTOR_HANDLE table = m_heap_gpu->GetGPUDescriptorHandleForHeapStart();
 
-		if (stage == ShaderStage::Compute)
+		if (stage != ShaderStage::Compute)
+		{	
+			if (m_descriptor_type == D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV)
+			{
+				command_list->SetGraphicsRootDescriptorTable(stage * 2 + 0, table);
+			}
+			else
+			{
+				command_list->SetGraphicsRootDescriptorTable(stage * 2 + 1, table);
+			}
+		}
+		else
 		{
 			if (m_descriptor_type == D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV)
 			{
@@ -144,17 +155,6 @@ void DescriptorTableFrameAllocator::Update(ID3D12Device* device, ID3D12GraphicsC
 			else
 			{
 				command_list->SetComputeRootDescriptorTable(1, table);
-			}
-		}
-		else
-		{
-			if (m_descriptor_type == D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV)
-			{
-				command_list->SetGraphicsRootDescriptorTable(stage * 2 + 0, table);
-			}
-			else
-			{
-				command_list->SetGraphicsRootDescriptorTable(stage * 2 + 1, table);
 			}
 		}
 
@@ -434,7 +434,7 @@ void GpuDeviceDX12::BeginPresent()
 	frame_resources->transient_resource_allocator.Clear();
 
 	// Transition the render target into the correct state to allow for drawing into it.
-	TransitionBarrier(GetCurrentRenderTarget(), ResourceState::Present, ResourceState::Render_Target);
+	TransitionBarrier(GetCurrentRenderTarget(), cmdlist, ResourceState::Present, ResourceState::Render_Target);
 
 	// Set the viewport and scissor rect.
 	{
@@ -463,13 +463,13 @@ void GpuDeviceDX12::EndPresent()
 	IDXGISwapChain3* swapchain = GetSwapChain();
 	ID3D12Device* device = GetD3DDevice();
 
-	// Transition the render target to the state that allows it to be presented to the display.
-	TransitionBarrier(GetCurrentRenderTarget(), ResourceState::Render_Target, ResourceState::Present);
-
 	FrameResource* frame_resources = GetFrameResources();
 	frame_resources->resource_descriptors_gpu.Update(device, cmdlist);
 	frame_resources->sampler_descriptors_gpu.Update(device, cmdlist);
 
+	// Transition the render target to the state that allows it to be presented to the display.
+	TransitionBarrier(GetCurrentRenderTarget(), cmdlist, ResourceState::Render_Target, ResourceState::Present);
+	
 	// Send the command list off to the GPU for processing.
 	u64 end_of_frame_fence = m_cmd_queue_mng.GetGraphicsQueue()->ExecuteCommandList(cmdlist);
 	frame_resources->fence_value = end_of_frame_fence;
@@ -529,39 +529,6 @@ void GpuDeviceDX12::MoveToNextFrame()
 static D3D12_RESOURCE_STATES ResourceStateToDX12(ResourceState::Enum state)
 {
 	return static_cast<D3D12_RESOURCE_STATES>(state);
-}
-
-void GpuDeviceDX12::TransitionBarrier(ID3D12Resource* resources, ResourceState::Enum state_before, ResourceState::Enum state_after)
-{
-	ASSERT(resources);
-
-	D3D12_RESOURCE_BARRIER barrier = CD3DX12_RESOURCE_BARRIER::Transition(
-		resources,
-		ResourceStateToDX12(state_before),
-		ResourceStateToDX12(state_after)
-	);
-	
-	GetCurrentCommandList()->ResourceBarrier(1, &barrier);
-}
-
-void GpuDeviceDX12::TransitionBarriers(ID3D12Resource** resources, u8 num_barriers, ResourceState::Enum state_before, ResourceState::Enum state_after)
-{
-	ASSERT(resources);
-
-	D3D12_RESOURCE_BARRIER barriers[256];
-	for (u8 i = 0; i < num_barriers; ++i)
-	{
-		ASSERT(resources[i]);
-
-		barriers[i].Transition.pResource = resources[i];
-		barriers[i].Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
-		barriers[i].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-		barriers[i].Transition.StateAfter = ResourceStateToDX12(state_after);
-		barriers[i].Transition.StateBefore = ResourceStateToDX12(state_before);
-		barriers[i].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-	}
-
-	GetCurrentCommandList()->ResourceBarrier(num_barriers, barriers);
 }
 
 CD3DX12_CPU_DESCRIPTOR_HANDLE GpuDeviceDX12::GetRenderTargetView() const
@@ -1337,6 +1304,161 @@ void GpuDeviceDX12::createFrameResources()
 	}
 }
 
+GpuBuffer GpuDeviceDX12::CreateBuffer(GpuBufferDesc const& desc, void* initial_data, u32 initial_data_bytes)
+{
+	GpuBuffer buffer;
+	MemZeroSafe(buffer);
+	buffer.desc = desc;
+
+	u32 alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+	if (desc.bind_flags & BindFlags::ConstantBuffer)
+	{
+		alignment = D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT;
+	}
+	
+	u64 aligned_size = AlignValue(desc.sizes_bytes, alignment);
+
+	D3D12_HEAP_PROPERTIES heap_props = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT);
+	D3D12_HEAP_FLAGS heap_flags = D3D12_HEAP_FLAG_NONE;
+
+	D3D12_RESOURCE_FLAGS resource_flags = D3D12_RESOURCE_FLAG_NONE;
+	if (desc.bind_flags & BindFlags::UnorderedAccess)
+	{
+		resource_flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+	}
+
+	D3D12_RESOURCE_DESC resource_desc = CD3DX12_RESOURCE_DESC::Buffer(aligned_size, resource_flags);
+	D3D12_RESOURCE_STATES resource_states = D3D12_RESOURCE_STATE_COMMON;
+
+	HRESULT created = m_d3d_device->CreateCommittedResource(
+		&heap_props,
+		heap_flags,
+		&resource_desc,
+		resource_states,
+		nullptr,
+		IID_PPV_ARGS(&buffer.resource)
+	);
+	ASSERT_HR(created);
+
+	ID3D12GraphicsCommandList* cmdlist = GetCurrentCommandList();
+
+	if (initial_data)
+	{
+		FrameResource* frame_resources = GetFrameResources();
+		ResourceAllocator& allocator = frame_resources->transient_resource_allocator;
+		
+		u8* copy_src_buffer = allocator.Allocate(initial_data_bytes, alignment);
+		memcpy(copy_src_buffer, initial_data, initial_data_bytes);
+		
+		cmdlist->CopyBufferRegion(
+			buffer.resource.Get(), 
+			0, 
+			allocator.GetRootBuffer(), 
+			allocator.CalculateOffset(copy_src_buffer), 
+			initial_data_bytes);
+	}
+
+	if (desc.bind_flags & BindFlags::ConstantBuffer)
+	{
+		D3D12_CONSTANT_BUFFER_VIEW_DESC cbv_desc = {};
+		cbv_desc.BufferLocation = buffer.resource->GetGPUVirtualAddress();
+		cbv_desc.SizeInBytes = aligned_size;
+
+		buffer.cbv.ptr = m_resource_allocator.Allocate();
+		m_d3d_device->CreateConstantBufferView(&cbv_desc, buffer.cbv);
+	}
+
+	if (desc.bind_flags & BindFlags::ShaderResource)
+	{
+		D3D12_SHADER_RESOURCE_VIEW_DESC srv_desc = {};
+		srv_desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+		srv_desc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
+		srv_desc.Buffer.FirstElement = 0;
+
+		if (desc.misc_flags & ResourceFlags::AllowRawViews)
+		{
+			srv_desc.Format = DXGI_FORMAT_R32_TYPELESS;
+			srv_desc.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_RAW;
+			srv_desc.Buffer.NumElements = desc.sizes_bytes / 4;
+		}
+		else if (desc.misc_flags & ResourceFlags::StructuredBuffer)
+		{
+			srv_desc.Format = DXGI_FORMAT_UNKNOWN;
+			srv_desc.Buffer.NumElements = desc.sizes_bytes / desc.stride_in_bytes;
+			srv_desc.Buffer.StructureByteStride = desc.stride_in_bytes;
+		}
+		else // Typed buffer.
+		{
+			srv_desc.Format = desc.format;
+			srv_desc.Buffer.NumElements = desc.sizes_bytes / desc.stride_in_bytes;
+		}
+
+		buffer.srv.ptr = m_resource_allocator.Allocate();
+		m_d3d_device->CreateShaderResourceView(buffer.resource.Get(), &srv_desc, buffer.srv);
+	}
+
+	if (desc.bind_flags & BindFlags::UnorderedAccess)
+	{
+		D3D12_UNORDERED_ACCESS_VIEW_DESC uav_desc = {};
+		uav_desc.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
+		uav_desc.Buffer.FirstElement = 0;
+
+		if (desc.misc_flags & ResourceFlags::AllowRawViews)
+		{
+			uav_desc.Format = DXGI_FORMAT_R32_TYPELESS;
+			uav_desc.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_RAW;
+			uav_desc.Buffer.NumElements = desc.sizes_bytes / 4;
+		}
+		else if (desc.misc_flags & ResourceFlags::StructuredBuffer)
+		{
+			uav_desc.Format = DXGI_FORMAT_UNKNOWN;
+			uav_desc.Buffer.NumElements = desc.sizes_bytes / desc.stride_in_bytes;
+			uav_desc.Buffer.StructureByteStride = desc.stride_in_bytes;
+		}
+		else // Typed buffer.
+		{
+			uav_desc.Format = desc.format;
+			uav_desc.Buffer.NumElements = desc.sizes_bytes / desc.stride_in_bytes;
+		}
+
+		buffer.uav.ptr = m_resource_allocator.Allocate();
+		m_d3d_device->CreateUnorderedAccessView(buffer.resource.Get(), nullptr, &uav_desc, buffer.uav);
+	}
+
+	return buffer;
+}
+
+void TransitionBarrier(ID3D12Resource* resource, ID3D12GraphicsCommandList* cmd_list, ResourceState::Enum state_before, ResourceState::Enum state_after)
+{
+	D3D12_RESOURCE_BARRIER barrier = CD3DX12_RESOURCE_BARRIER::Transition(
+		resource,
+		ResourceStateToDX12(state_before),
+		ResourceStateToDX12(state_after)
+	);
+
+	cmd_list->ResourceBarrier(1, &barrier);
+}
+
+void TransitionBarriers(ID3D12Resource** resources, ID3D12GraphicsCommandList* cmd_list, u8 num_barriers, ResourceState::Enum state_before, ResourceState::Enum state_after)
+{
+	ASSERT(resources);
+
+	D3D12_RESOURCE_BARRIER barriers[256];
+	for (u8 i = 0; i < num_barriers; ++i)
+	{
+		ASSERT(resources[i]);
+
+		barriers[i].Transition.pResource = resources[i];
+		barriers[i].Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
+		barriers[i].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+		barriers[i].Transition.StateAfter = ResourceStateToDX12(state_after);
+		barriers[i].Transition.StateBefore = ResourceStateToDX12(state_before);
+		barriers[i].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+	}
+
+	cmd_list->ResourceBarrier(num_barriers, barriers);
+}
+
 void WaitForFenceValue(ID3D12Fence* fence, uint64_t fenceValue, HANDLE fenceEvent, u32 durationMS)
 {
 	// TODO(pgPW): Add hang detection here. Set timer, wait interval, if not completed, assert.
@@ -1403,10 +1525,61 @@ void BindIndexBuffer(ID3D12GraphicsCommandList* command_list, GpuBuffer const* i
 	command_list->IASetIndexBuffer(&buffer_view);
 }
 
+GpuBuffer CreateVertexBuffer(GpuDeviceDX12* gpu_device, void* vertex_data, u32 vertex_bytes, u32 vertex_stride_bytes)
+{
+	GpuBufferDesc desc;
+	MemZeroSafe(desc);
+	desc.usage = BufferUsage::Default;
+	desc.sizes_bytes = vertex_bytes;
+	desc.bind_flags = BindFlags::VertexBuffer;
+	desc.stride_in_bytes = vertex_stride_bytes;
+
+	GpuBuffer vertex_buffer = gpu_device->CreateBuffer(desc, vertex_data, vertex_bytes);
+
+	TransitionBarrier(
+		vertex_buffer.resource.Get(), 
+		gpu_device->GetCurrentCommandList(), 
+		ResourceState::Copy_Dest, 
+		ResourceState::Vertex_And_Constant_Buffer);
+
+	return vertex_buffer;
+}
+
+GpuBuffer CreateIndexBuffer(GpuDeviceDX12* gpu_device, void* index_data, u32 index_bytes)
+{
+	GpuBufferDesc desc;
+	MemZeroSafe(desc);
+	desc.usage = BufferUsage::Default;
+	desc.sizes_bytes = index_bytes;
+	desc.bind_flags = BindFlags::IndexBuffer;
+	desc.format = DXGI_FORMAT_R16_UINT;
+	desc.stride_in_bytes = sizeof(u16);
+
+	GpuBuffer index_buffer = gpu_device->CreateBuffer(desc, index_data, index_bytes);
+
+	TransitionBarrier(
+		index_buffer.resource.Get(),
+		gpu_device->GetCurrentCommandList(),
+		ResourceState::Copy_Dest,
+		ResourceState::Index_Buffer // ResourceState::Generic_Read?
+	);
+
+	return index_buffer;
+}
+
+Mesh CreateMesh(GpuDeviceDX12* gpu_device, void* vertex_data, u32 vertex_bytes, u32 vertex_stride_bytes, void* index_data, u32 index_bytes)
+{
+	Mesh mesh;
+	mesh.vertex_buffer_gpu = CreateVertexBuffer(gpu_device, vertex_data, vertex_bytes, vertex_stride_bytes);
+	mesh.index_buffer_gpu = CreateIndexBuffer(gpu_device, index_data, index_bytes);
+
+	return mesh;
+}
+
 void DrawMesh(Mesh const* mesh, ID3D12GraphicsCommandList* command_list)
 {
-	BindVertexBuffer(command_list, mesh->vertex_buffer_gpu, 0, 0);
-	BindIndexBuffer(command_list, mesh->index_buffer_gpu, 0);
+	BindVertexBuffer(command_list, &mesh->vertex_buffer_gpu, 0, 0);
+	BindIndexBuffer(command_list, &mesh->index_buffer_gpu, 0);
 
 	for (SubMesh const& submesh : mesh->submeshes)
 	{

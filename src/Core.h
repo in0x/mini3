@@ -132,6 +132,13 @@ inline void memzero(void* dst, size_t size)
 	memset(dst, 0, size);
 }
 
+template<typename T>
+inline void MemZeroSafe(T& data)
+{
+	static_assert(std::is_trivially_copyable<T>::value, "Cannot memzero non-trivial type!");
+	memzero(&t, sizeof(T));
+}
+
 inline ptrdiff_t GetAlignmentAdjustment(u8* raw, size_t alignment)
 {
 	uintptr_t ptr = reinterpret_cast<uintptr_t>(raw);
@@ -147,4 +154,11 @@ inline u8* AlignAddress(u8* raw, size_t alignment)
 
 	u8* aligned = raw + adjust;
 	return aligned;
+}
+
+inline u64 AlignValue(u64 value, size_t alignment)
+{
+	size_t mask = (alignment - 1);
+	uintptr_t misalignment = (value & mask);
+	return value + (alignment - misalignment);
 }

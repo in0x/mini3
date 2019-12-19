@@ -83,6 +83,35 @@ struct BufferUsage
 	};
 };
 
+struct BindFlags
+{
+	enum Enum
+	{
+		VertexBuffer	= 1 << 0,
+		IndexBuffer		= 1 << 2,
+		ConstantBuffer	= 1 << 3,
+		ShaderResource	= 1 << 4,
+		StreamOutput	= 1 << 5,
+		RenderTarget	= 1 << 6,
+		DepthStencil	= 1 << 7,
+		UnorderedAccess = 1 << 8,
+	};
+};
+
+struct ResourceFlags
+{
+	enum Enum
+	{
+		AllowRawViews	 = 1 << 0,
+		StructuredBuffer = 1 << 1,
+		GenerateMips	 = 1 << 2,
+		Shared			 = 1 << 3,
+		TextureCube		 = 1 << 4,
+		DrawIndirectArgs = 1 << 5,
+		Tiled			 = 1 << 6
+	};
+};
+
 struct Shader
 {
 	ComPtr<ID3DBlob> blob = nullptr;
@@ -101,8 +130,8 @@ struct GraphicsPso
 struct GpuResource
 {
 	ComPtr<ID3D12Resource> resource = nullptr;
-	D3D12_CPU_DESCRIPTOR_HANDLE* srv = nullptr;
-	D3D12_CPU_DESCRIPTOR_HANDLE* uav = nullptr;
+	D3D12_CPU_DESCRIPTOR_HANDLE srv;
+	D3D12_CPU_DESCRIPTOR_HANDLE uav;
 };
 
 struct GpuBufferDesc
@@ -118,7 +147,7 @@ struct GpuBufferDesc
 
 struct GpuBuffer : public GpuResource
 {
-	D3D12_CPU_DESCRIPTOR_HANDLE* cbv  = nullptr;
+	D3D12_CPU_DESCRIPTOR_HANDLE cbv = {};
 	GpuBufferDesc desc;
 };
 
@@ -136,11 +165,12 @@ struct SubMesh
 
 struct Mesh
 {
+	// When would I need these other than special cases like deformation maybe?
 	CpuBuffer* vertex_buffer_cpu = nullptr;
 	CpuBuffer* index_buffer_cpu = nullptr;
 
-	GpuBuffer* vertex_buffer_gpu = nullptr;
-	GpuBuffer* index_buffer_gpu = nullptr;
+	GpuBuffer vertex_buffer_gpu;
+	GpuBuffer index_buffer_gpu;
 
 	Array<SubMesh, 8> submeshes;
 };
@@ -244,6 +274,8 @@ public:
 	u8* Allocate(size_t size_bytes, size_t alignment);
 	u64 CalculateOffset(u8* address);
 
+	inline ID3D12Resource* GetRootBuffer() { return m_resource.Get(); }
+
 private:
 	ComPtr<ID3D12Resource> m_resource = nullptr;
 	u8* m_data_begin = 0;
@@ -285,11 +317,9 @@ public:
 	void EndPresent();
 	void MoveToNextFrame();
 	void Flush();
-	
-	void TransitionBarrier(ID3D12Resource* resources, ResourceState::Enum stateBefore, ResourceState::Enum stateAfter);
-	void TransitionBarriers(ID3D12Resource** resources, u8 numBarriers, ResourceState::Enum stateBefore, ResourceState::Enum stateAfter);
 
-private:
+	GpuBuffer CreateBuffer(GpuBufferDesc const& desc, void* initial_data, u32 initial_data_bytes);
+	
 	inline ID3D12Device*              GetD3DDevice() const { return m_d3d_device.Get(); }
 	inline IDXGISwapChain3*           GetSwapChain() const { return m_swap_chain.Get(); }
 	inline D3D12_VIEWPORT             GetScreenViewport() const { return m_screen_viewport; }
@@ -301,6 +331,7 @@ private:
 	inline ID3D12GraphicsCommandList* GetCurrentCommandList() const { return m_frame_resource[m_frame_index].command_list.Get(); }
 	inline u64						  GetCurrentFenceValue() const { return m_frame_resource[m_frame_index].fence_value; }
 
+private:	
 	void enableDebugLayer();
 	bool checkTearingSupport();
 	void createDevice(bool bEnableDebugLayer);
@@ -388,7 +419,11 @@ private:
 
 u64 Signal(ID3D12CommandQueue* commandQueue, ID3D12Fence* fence, u64 fenceValue);
 void WaitForFenceValue(ID3D12Fence* fence, uint64_t fenceValue, HANDLE fenceEvent, u32 durationMS = INFINITE);
+void TransitionBarrier(ID3D12Resource* resources, ID3D12GraphicsCommandList* cmd_list, ResourceState::Enum stateBefore, ResourceState::Enum stateAfter);
+void TransitionBarriers(ID3D12Resource** resources, u8 numBarriers, ID3D12GraphicsCommandList* cmd_list, ResourceState::Enum stateBefore, ResourceState::Enum stateAfter);
+
 void BindVertexBuffer(ID3D12GraphicsCommandList* command_list, GpuBuffer const * vertex_buffer, u8 slot, u32 offset);
 void BindVertexBuffers(ID3D12GraphicsCommandList* command_list, GpuBuffer const ** vertex_buffers, u8 slot, u8 count, u32 const* offsets);
 void BindIndexBuffer(ID3D12GraphicsCommandList* command_list, GpuBuffer const* index_buffer, u32 offset);
+
 void DrawMesh(Mesh const* mesh, ID3D12GraphicsCommandList* command_list);
