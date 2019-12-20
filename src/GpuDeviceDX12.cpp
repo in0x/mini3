@@ -1776,9 +1776,9 @@ namespace Gfx
 		g_gpu_device->CloseAndEnqueueCommandList(cmd_list);
 	}
 
-	void SubmitCommandList(ID3D12GraphicsCommandList* cmd_list)
+	u64 SubmitCommandList(ID3D12GraphicsCommandList* cmd_list)
 	{
-		g_gpu_device->CloseAndSubmitCommandList(cmd_list);
+		return g_gpu_device->CloseAndSubmitCommandList(cmd_list);
 	}
 
 	void FlushQueuedGraphicsWork()

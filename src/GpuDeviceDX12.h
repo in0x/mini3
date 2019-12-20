@@ -536,7 +536,7 @@ namespace Gfx
 	void EnqueueCommandList(ID3D12GraphicsCommandList* cmd_list);
 	
 	// Closes the CommandList, free's up its allocator and pushes it directly into the graphics queue.
-	void SubmitCommandList(ID3D12GraphicsCommandList* cmd_list);
+	u64 SubmitCommandList(ID3D12GraphicsCommandList* cmd_list);
 
 	// Flushes the enqueued command lists out to the graphics queue.
 	void FlushQueuedGraphicsWork();
