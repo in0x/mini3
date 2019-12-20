@@ -2,20 +2,18 @@
 
 #include "GpuDeviceDX12.h"
 #include "InputMessageQueue.h"
-
-struct SceneObject
-{
-	Mtx34 m_World;
-	GraphicsPso m_pso;
-
-};
+#include "GeoUtils.h"
 
 void MiniApp::Init()
 {
 	__super::Init();
 
-	m_gpu_device = new GpuDeviceDX12();
-	m_gpu_device->Init(GetNativeHandle(), GpuDeviceDX12::InitFlags::Enable_Debug_Layer | GpuDeviceDX12::InitFlags::Allow_Tearing);
+	RegisterCommandProducerThread();
+
+	Gfx::CreateGpuDevice(GetNativeHandle(), GpuDeviceDX12::InitFlags::Enable_Debug_Layer | GpuDeviceDX12::InitFlags::Allow_Tearing);
+
+	GeoUtils::CubeGeometry cube;
+	GeoUtils::CreateBox(2.0f, 2.0f, 2.0f, &cube);
 }
 
 bool MiniApp::Update()
@@ -31,9 +29,9 @@ bool MiniApp::Update()
 		return false;
 	}
 
-	m_gpu_device->BeginPresent();
+	Gfx::BeginPresent();
 	// ...
-	m_gpu_device->EndPresent();
+	Gfx::EndPresent();
 	
 	return true;
 }
@@ -41,7 +39,5 @@ bool MiniApp::Update()
 void MiniApp::Exit()
 {
 	__super::Exit();
-
-	m_gpu_device->Flush();
-	delete m_gpu_device;
+	Gfx::DestroyGpuDevice();
 }

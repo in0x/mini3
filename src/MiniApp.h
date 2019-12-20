@@ -2,8 +2,6 @@
 #include "BaseApp.h"
 #include "Math.h"
 
-class GpuDeviceDX12;
-
 class MiniApp : public BaseApp
 {
 	virtual void Init() override;
@@ -11,8 +9,6 @@ class MiniApp : public BaseApp
 	virtual void Exit() override;
 
 private:
-	Mtx34 m_view;
-	Mtx34 m_projection;
-
-	GpuDeviceDX12* m_gpu_device;
+	mtx34 m_view;
+	mtx34 m_projection;
 };

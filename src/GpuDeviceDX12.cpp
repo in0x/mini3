@@ -1,5 +1,6 @@
 #include "GpuDeviceDX12.h"
 #include "Core.h"
+#include "MemUtils.h"
 
 static constexpr size_t GPU_SAMPLER_HEAP_COUNT = 16;
 static constexpr size_t GPU_RESOURCE_HEAP_CBV_COUNT = 12;
@@ -191,10 +192,10 @@ void ResourceAllocator::Create(ID3D12Device* device, size_t size_bytes)
 
 u8* ResourceAllocator::Allocate(size_t size_bytes, size_t alignment)
 {
-	ptrdiff_t alignment_padding = GetAlignmentAdjustment(m_data_current, alignment);
+	ptrdiff_t alignment_padding = Memory::GetAlignmentAdjustment(m_data_current, alignment);
 	ASSERT((m_data_current + size_bytes + alignment_padding) <= m_data_end);
 
-	u8* allocation = AlignAddress(m_data_current, alignment);
+	u8* allocation = Memory::AlignAddress(m_data_current, alignment);
 	m_data_current += (size_bytes + alignment_padding);
 
 	return allocation;
@@ -237,6 +238,158 @@ u64 DescriptorAllocator::Allocate()
 
 	return (start_ptr + offset);
 }
+
+constexpr s32 invalid_cmd_thread_id = -1;
+thread_local s32 tls_cmd_allocator_idx = invalid_cmd_thread_id;
+static atomic_u32 g_cmd_threads_registered = 0;
+
+void RegisterCommandProducerThread()
+{
+	ASSERT(g_cmd_threads_registered.load() < NUM_MAX_THREADS);
+	tls_cmd_allocator_idx = g_cmd_threads_registered++;
+}
+
+inline bool IsValidCommandProducerThread()
+{
+	return (tls_cmd_allocator_idx != -1);
+}
+
+inline s32 GetCmdProducerThreadId()
+{
+	ASSERT(IsValidCommandProducerThread());
+	return tls_cmd_allocator_idx;
+}
+
+void CommandAllocator::Create(ID3D12Device* device)
+{
+	m_gfx_allocators = new ID3D12CommandAllocator*[NUM_MAX_THREADS];
+	m_copy_allocators = new ID3D12CommandAllocator*[NUM_MAX_THREADS];
+	m_compute_allocators = new ID3D12CommandAllocator*[NUM_MAX_THREADS];
+
+	wchar_t name[64] = {};
+
+	for (u32 thread_id = 0; thread_id < NUM_MAX_THREADS; ++thread_id)
+	{
+		VERIFY_HR(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&m_gfx_allocators[thread_id])));
+		VERIFY_HR(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_COPY, IID_PPV_ARGS(&m_copy_allocators[thread_id])));
+		VERIFY_HR(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_COMPUTE, IID_PPV_ARGS(&m_compute_allocators[thread_id])));
+
+		swprintf_s(name, L"cmdallocator_gfx_%u", thread_id);
+		m_gfx_allocators[thread_id]->SetName(name);
+
+		swprintf_s(name, L"cmdallocator_copy_%u", thread_id);
+		m_copy_allocators[thread_id]->SetName(name);
+
+		swprintf_s(name, L"cmdallocator_compute_%u", thread_id);
+		m_compute_allocators[thread_id]->SetName(name);
+	}
+}
+
+void CommandAllocator::Destroy()
+{
+	delete m_gfx_allocators;
+	delete m_copy_allocators;
+	delete m_compute_allocators;
+}
+
+void CommandAllocator::Reset()
+{
+	s32 const thread_id = GetCmdProducerThreadId();
+
+	VERIFY_HR(m_gfx_allocators[thread_id]->Reset());
+	VERIFY_HR(m_copy_allocators[thread_id]->Reset());
+	VERIFY_HR(m_compute_allocators[thread_id]->Reset());
+}
+
+ID3D12CommandAllocator** CommandAllocator::GetAllocatorSet(D3D12_COMMAND_LIST_TYPE type)
+{
+	switch (type)
+	{
+	case D3D12_COMMAND_LIST_TYPE_DIRECT:
+		return m_gfx_allocators;
+	case D3D12_COMMAND_LIST_TYPE_COMPUTE:
+		return m_compute_allocators;
+	case D3D12_COMMAND_LIST_TYPE_COPY:
+		return m_copy_allocators;
+	default:
+		ASSERT_FAIL_F("Cmd allocators for this list type are not currently being created!");
+		return nullptr;
+	}
+}
+
+ID3D12CommandAllocator* CommandAllocator::GetAllocator(D3D12_COMMAND_LIST_TYPE type)
+{
+	ID3D12CommandAllocator** allocator_set = GetAllocatorSet(type);
+	return allocator_set[GetCmdProducerThreadId()];
+}
+
+CommandListManager::CommandListManager()
+{
+	memzero(m_active_gfx_lists, sizeof(ID3D12GraphicsCommandList*) * NUM_MAX_THREADS);
+	memzero(m_active_copy_lists, sizeof(ID3D12GraphicsCommandList*) * NUM_MAX_THREADS);
+	memzero(m_active_compute_lists, sizeof(ID3D12GraphicsCommandList*) * NUM_MAX_THREADS);
+}
+
+ID3D12GraphicsCommandList** CommandListManager::GetListSetByType(D3D12_COMMAND_LIST_TYPE type)
+{
+	switch (type)
+	{
+	case D3D12_COMMAND_LIST_TYPE_DIRECT:
+		return m_active_copy_lists;
+	case D3D12_COMMAND_LIST_TYPE_COMPUTE:
+		return m_active_compute_lists;
+	case D3D12_COMMAND_LIST_TYPE_COPY:
+		return m_active_copy_lists;
+	default:
+		ASSERT_FAIL();
+		return nullptr;
+	}
+}
+
+ID3D12GraphicsCommandList** CommandListManager::GetCommandListSlot(s32 thread_id, D3D12_COMMAND_LIST_TYPE type)
+{
+	ID3D12GraphicsCommandList** list_set = GetListSetByType(type);
+	return &list_set[thread_id];
+}
+
+void CommandListManager::OpenCommandList(ID3D12GraphicsCommandList* cmdlist, CommandAllocator* allocator)
+{
+	s32 thread_id = GetCmdProducerThreadId();
+	D3D12_COMMAND_LIST_TYPE list_type = cmdlist->GetType();
+
+	ID3D12GraphicsCommandList** list_slot = GetCommandListSlot(thread_id, list_type);
+	ASSERT_F(*list_slot == nullptr, "Another command list is already open on this thread!");
+
+	ID3D12CommandAllocator* cmd_allocator = allocator->GetAllocator(list_type);
+
+	VERIFY_HR(cmdlist->Reset(cmd_allocator, nullptr));
+	*list_slot = cmdlist;
+}
+
+void CommandListManager::CloseCommandList(ID3D12GraphicsCommandList* cmdlist)
+{
+	s32 thread_id = GetCmdProducerThreadId();
+	D3D12_COMMAND_LIST_TYPE list_type = cmdlist->GetType();
+
+	ID3D12GraphicsCommandList** list_slot = GetCommandListSlot(thread_id, list_type);
+	ASSERT_F(*list_slot == cmdlist, "Attempting to close a command list that is not open on this thread!");
+
+	VERIFY_HR(cmdlist->Close());
+	*list_slot = nullptr;
+}
+
+bool CommandListManager::EnsureAllCommandListsClosed()
+{
+	for (u32 i = 0; i < NUM_MAX_THREADS; ++i)
+	{
+		if (m_active_gfx_lists[i] != nullptr) return false;
+		if (m_active_copy_lists[i] != nullptr) return false;
+		if (m_active_compute_lists[i] != nullptr) return false;
+	}
+
+	return true;
+}
+
 
 CommandQueue::CommandQueue()
 	: m_cmd_queue(nullptr)
@@ -338,10 +491,17 @@ u64 CommandQueue::FetchCurrentFenceValue()
 
 u64 CommandQueue::ExecuteCommandList(ID3D12CommandList* cmd_list)
 {
-	HRESULT closed = static_cast<ID3D12GraphicsCommandList*>(cmd_list)->Close();
-	ASSERT_HR(closed);
-
 	m_cmd_queue->ExecuteCommandLists(1, &cmd_list);
+
+	ScopedLock lock(m_fence_mutex);
+	m_cmd_queue->Signal(m_fence.Get(), m_next_fence_value);
+
+	return m_next_fence_value++;
+}
+
+u64 CommandQueue::ExecuteCommandLists(ID3D12CommandList** cmd_lists, u32 count)
+{
+	m_cmd_queue->ExecuteCommandLists(count, cmd_lists);
 
 	ScopedLock lock(m_fence_mutex);
 	m_cmd_queue->Signal(m_fence.Get(), m_next_fence_value);
@@ -379,6 +539,12 @@ CommandQueue* CommandQueueManager::GetQueue(D3D12_COMMAND_LIST_TYPE type)
 	}
 }
 
+u64 CommandQueueManager::ExecuteCommandList(ID3D12CommandList* cmd_list)
+{
+	CommandQueue* queue = GetQueue(cmd_list->GetType());
+	return queue->ExecuteCommandList(cmd_list);
+}
+
 bool CommandQueueManager::IsFenceComplete(u64 fence_value)
 {
 	CommandQueue* queue = GetQueue((D3D12_COMMAND_LIST_TYPE)(fence_value >> 56));
@@ -400,21 +566,19 @@ void CommandQueueManager::WaitForAllQueuesFinished()
 
 void GpuDeviceDX12::BeginPresent()
 {
-	FrameResource* frame_resources = GetFrameResources();
+	FrameResource* frame = GetFrameResources();
 
-	ID3D12GraphicsCommandList* cmdlist = GetCurrentCommandList();
-	ID3D12CommandAllocator* allocator = GetCommandAllocator();
+	// Ensure we don't have any open commandlists so we can safely reset the allocators.
+	ASSERT(frame->cmd_list_manager.EnsureAllCommandListsClosed());
+	frame->cmd_allocator.Reset();
 
-	HRESULT hr = allocator->Reset();
-	ASSERT_HR(hr);
-
-	hr = cmdlist->Reset(allocator, nullptr);
-	ASSERT_HR(hr);
+	ID3D12GraphicsCommandList* cmdlist = frame->GetFrameCmdList();
+	OpenCommandList(cmdlist);
 
 	ID3D12DescriptorHeap* heaps[] = 
 	{
-		frame_resources->resource_descriptors_gpu.GetGpuHeap(),
-		frame_resources->sampler_descriptors_gpu.GetGpuHeap()
+		frame->resource_descriptors_gpu.GetGpuHeap(),
+		frame->sampler_descriptors_gpu.GetGpuHeap()
 	};
 
 	cmdlist->SetDescriptorHeaps(ARRAY_SIZE(heaps), heaps);
@@ -429,12 +593,12 @@ void GpuDeviceDX12::BeginPresent()
 		m_null_uav
 	};
 
-	frame_resources->resource_descriptors_gpu.Reset(GetD3DDevice(), null_descriptors);
-	frame_resources->sampler_descriptors_gpu.Reset(GetD3DDevice(), null_descriptors);
-	frame_resources->transient_resource_allocator.Clear();
+	frame->resource_descriptors_gpu.Reset(GetD3DDevice(), null_descriptors);
+	frame->sampler_descriptors_gpu.Reset(GetD3DDevice(), null_descriptors);
+	frame->transient_resource_allocator.Clear();
 
 	// Transition the render target into the correct state to allow for drawing into it.
-	TransitionBarrier(GetCurrentRenderTarget(), cmdlist, ResourceState::Present, ResourceState::Render_Target);
+	Gfx::TransitionBarrier(GetCurrentRenderTarget(), cmdlist, ResourceState::Present, ResourceState::Render_Target);
 
 	// Set the viewport and scissor rect.
 	{
@@ -459,20 +623,21 @@ void GpuDeviceDX12::BeginPresent()
 
 void GpuDeviceDX12::EndPresent()
 {
-	ID3D12GraphicsCommandList* cmdlist = GetCurrentCommandList();
 	IDXGISwapChain3* swapchain = GetSwapChain();
 	ID3D12Device* device = GetD3DDevice();
 
-	FrameResource* frame_resources = GetFrameResources();
-	frame_resources->resource_descriptors_gpu.Update(device, cmdlist);
-	frame_resources->sampler_descriptors_gpu.Update(device, cmdlist);
+	FrameResource* frame = GetFrameResources();
+	ID3D12GraphicsCommandList* cmdlist = frame->GetFrameCmdList();
+
+	frame->resource_descriptors_gpu.Update(device, cmdlist);
+	frame->sampler_descriptors_gpu.Update(device, cmdlist);
 
 	// Transition the render target to the state that allows it to be presented to the display.
-	TransitionBarrier(GetCurrentRenderTarget(), cmdlist, ResourceState::Render_Target, ResourceState::Present);
-	
+	Gfx::TransitionBarrier(GetCurrentRenderTarget(), cmdlist, ResourceState::Render_Target, ResourceState::Present);
+
 	// Send the command list off to the GPU for processing.
-	u64 end_of_frame_fence = m_cmd_queue_mng.GetGraphicsQueue()->ExecuteCommandList(cmdlist);
-	frame_resources->fence_value = end_of_frame_fence;
+	CloseAndEnqueueCommandList(cmdlist);
+	frame->SubmitQueuedWork(m_cmd_queue_mng.GetGraphicsQueue());
 
 	HRESULT hr = S_OK;
 	if (IsTearingAllowed())
@@ -506,6 +671,9 @@ void GpuDeviceDX12::EndPresent()
 
 void GpuDeviceDX12::Flush()
 {
+	// Flush all outstanding work.
+	FlushQueuedGraphicsWork();
+
 	// Wait for all queues to become idle.
 	m_cmd_queue_mng.WaitForAllQueuesFinished();
 }
@@ -513,10 +681,9 @@ void GpuDeviceDX12::Flush()
 void GpuDeviceDX12::MoveToNextFrame()
 {
 	m_frame_index = m_swap_chain->GetCurrentBackBufferIndex();
-	u64 current_fence_value = GetCurrentFenceValue();
 
 	// If this frame has not finished rendering yet, wait until it is ready.
-	m_cmd_queue_mng.GetGraphicsQueue()->WaitForFenceCpuBlocking(current_fence_value);
+	m_cmd_queue_mng.GetGraphicsQueue()->WaitForFenceCpuBlocking(GetFrameResources()->end_of_frame_fence);
 
 	if (!m_dxgi_factory->IsCurrent())
 	{
@@ -677,6 +844,11 @@ void GpuDeviceDX12::Init(void* windowHandle, u32 initFlags)
 	m_texture_upload_allocator.Create(device, 256 * 1024 * 1024); // TODO: reset
 
 	createNullResources();
+}
+
+void GpuDeviceDX12::Destroy()
+{
+	destroyFrameResource();
 }
 
 void GpuDeviceDX12::createNullResources()
@@ -1245,27 +1417,52 @@ static ComPtr<ID3D12CommandAllocator> CreateCommandAllocator(ID3D12Device* devic
 	return cmd_allocator;
 }
 
-static ComPtr<ID3D12GraphicsCommandList> CreateCommandList(ID3D12Device* device, ID3D12CommandAllocator* cmd_allocator, D3D12_COMMAND_LIST_TYPE type, u32 frame_idx)
+ComPtr<ID3D12GraphicsCommandList> GpuDeviceDX12::CreateCommandList(D3D12_COMMAND_LIST_TYPE type, wchar_t* name)
 {
 	ComPtr<ID3D12GraphicsCommandList> cmd_list;
 
-	HRESULT cmdListCreated = device->CreateCommandList(
+	HRESULT cmdListCreated = m_d3d_device->CreateCommandList(
 		0,
 		type,
-		cmd_allocator,
+		GetFrameResources()->cmd_allocator.GetAllocator(type),
 		nullptr,
 		IID_PPV_ARGS(&cmd_list));
 
 	ASSERT_HR(cmdListCreated);
 
-	HRESULT closed = cmd_list->Close();
+	HRESULT closed = cmd_list->Close(); 
 	ASSERT_HR(closed);
 
-	wchar_t name[64] = {};
-	swprintf_s(name, L"cmdlist_frame_%u", frame_idx);
-	cmd_list->SetName(name);
-
+	if (name)
+	{
+		cmd_list->SetName(name);
+	}
+	
 	return cmd_list;
+}
+
+void GpuDeviceDX12::OpenCommandList(ID3D12GraphicsCommandList* cmd_list)
+{
+	FrameResource* frame_resource = GetFrameResources();
+	CommandAllocator* cmd_allocator = &frame_resource->cmd_allocator;
+
+	frame_resource->cmd_list_manager.OpenCommandList(cmd_list, cmd_allocator);
+}
+
+void GpuDeviceDX12::CloseAndEnqueueCommandList(ID3D12GraphicsCommandList* cmd_list)
+{
+	GetFrameResources()->CloseAndSubmitCommandList(cmd_list);
+}
+
+u64 GpuDeviceDX12::CloseAndSubmitCommandList(ID3D12GraphicsCommandList* cmd_list)
+{
+	GetFrameResources()->CloseCommandList(cmd_list);
+	return m_cmd_queue_mng.ExecuteCommandList(cmd_list);
+}
+
+void GpuDeviceDX12::FlushQueuedGraphicsWork()
+{
+	return GetFrameResources()->SubmitQueuedWork(m_cmd_queue_mng.GetGraphicsQueue());
 }
 
 static ComPtr<ID3D12Resource> CreateRenderTarget(ID3D12Device* device, ID3D12DescriptorHeap* heap, IDXGISwapChain3* swap_chain, DXGI_FORMAT format, u32 descriptor_size, u32 frame_idx)
@@ -1292,15 +1489,27 @@ void GpuDeviceDX12::createFrameResources()
 {
 	ID3D12Device* device = GetD3DDevice();
 
+	wchar_t cmd_list_name[64];
+
 	for (u32 i = 0; i < MAX_FRAME_COUNT; ++i)
 	{
-		m_frame_resource[i].command_allocator = CreateCommandAllocator(device, D3D12_COMMAND_LIST_TYPE_DIRECT, i);
-		m_frame_resource[i].command_list = CreateCommandList(device, m_frame_resource[i].command_allocator.Get(), D3D12_COMMAND_LIST_TYPE_DIRECT, i);
+		swprintf_s(cmd_list_name, L"cmd_list_frame_%u", i);
+
+		m_frame_resource[i].cmd_allocator.Create(device);
+		m_frame_resource[i].command_list = CreateCommandList(D3D12_COMMAND_LIST_TYPE_DIRECT, cmd_list_name);
 		m_frame_resource[i].render_target = CreateRenderTarget(device, m_rtv_descriptor_heap.Get(), GetSwapChain(), m_backbuffer_format, m_rtv_descriptor_size, i);
 
 		m_frame_resource[i].resource_descriptors_gpu.Create(device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 1024);
 		m_frame_resource[i].sampler_descriptors_gpu.Create(device, D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER, 16);
 		m_frame_resource[i].transient_resource_allocator.Create(device, 1024 * 1024 * 128);
+	}
+}
+
+void GpuDeviceDX12::destroyFrameResource()
+{
+	for (u32 i = 0; i < MAX_FRAME_COUNT; ++i)
+	{
+		m_frame_resource[i].cmd_allocator.Destroy();
 	}
 }
 
@@ -1315,7 +1524,7 @@ GpuBuffer GpuDeviceDX12::CreateBuffer(GpuBufferDesc const& desc, void* initial_d
 		alignment = D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT;
 	}
 	
-	u64 aligned_size = AlignValue(desc.sizes_bytes, alignment);
+	u64 aligned_size = Memory::AlignValue(desc.sizes_bytes, alignment);
 
 	D3D12_HEAP_PROPERTIES heap_props = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT);
 	D3D12_HEAP_FLAGS heap_flags = D3D12_HEAP_FLAG_NONE;
@@ -1343,8 +1552,8 @@ GpuBuffer GpuDeviceDX12::CreateBuffer(GpuBufferDesc const& desc, void* initial_d
 
 	if (initial_data)
 	{
-		FrameResource* frame_resources = GetFrameResources();
-		ResourceAllocator& allocator = frame_resources->transient_resource_allocator;
+		FrameResource* frame = GetFrameResources();
+		ResourceAllocator& allocator = frame->transient_resource_allocator;
 		
 		u8* copy_src_buffer = allocator.Allocate(initial_data_bytes, alignment);
 		memcpy(copy_src_buffer, initial_data, initial_data_bytes);
@@ -1426,162 +1635,216 @@ GpuBuffer GpuDeviceDX12::CreateBuffer(GpuBufferDesc const& desc, void* initial_d
 
 	return buffer;
 }
-
-void TransitionBarrier(ID3D12Resource* resource, ID3D12GraphicsCommandList* cmd_list, ResourceState::Enum state_before, ResourceState::Enum state_after)
+namespace Gfx
 {
-	D3D12_RESOURCE_BARRIER barrier = CD3DX12_RESOURCE_BARRIER::Transition(
-		resource,
-		ResourceStateToDX12(state_before),
-		ResourceStateToDX12(state_after)
-	);
+	static GpuDeviceDX12* g_gpu_device = nullptr;
 
-	cmd_list->ResourceBarrier(1, &barrier);
-}
-
-void TransitionBarriers(ID3D12Resource** resources, ID3D12GraphicsCommandList* cmd_list, u8 num_barriers, ResourceState::Enum state_before, ResourceState::Enum state_after)
-{
-	ASSERT(resources);
-
-	D3D12_RESOURCE_BARRIER barriers[256];
-	for (u8 i = 0; i < num_barriers; ++i)
+	void CreateGpuDevice(void* main_window_handle, u32 flags)
 	{
-		ASSERT(resources[i]);
-
-		barriers[i].Transition.pResource = resources[i];
-		barriers[i].Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
-		barriers[i].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-		barriers[i].Transition.StateAfter = ResourceStateToDX12(state_after);
-		barriers[i].Transition.StateBefore = ResourceStateToDX12(state_before);
-		barriers[i].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+		ASSERT(g_gpu_device == nullptr);
+		g_gpu_device = new GpuDeviceDX12();
+		g_gpu_device->Init(main_window_handle, flags);
 	}
 
-	cmd_list->ResourceBarrier(num_barriers, barriers);
-}
-
-void WaitForFenceValue(ID3D12Fence* fence, uint64_t fenceValue, HANDLE fenceEvent, u32 durationMS)
-{
-	// TODO(pgPW): Add hang detection here. Set timer, wait interval, if not completed, assert.
-
-	if (fence->GetCompletedValue() < fenceValue)
+	void DestroyGpuDevice()
 	{
-		HRESULT hr = fence->SetEventOnCompletion(fenceValue, fenceEvent);
-		ASSERT_HR(hr);
-		WaitForSingleObjectEx(fenceEvent, durationMS, FALSE);
+		ASSERT(g_gpu_device != nullptr);
+		g_gpu_device->Flush();
+		g_gpu_device->Destroy();
+		delete g_gpu_device;
 	}
-}
 
-u64 Signal(ID3D12CommandQueue* commandQueue, ID3D12Fence* fence, u64 fenceValue)
-{
-	HRESULT hr = commandQueue->Signal(fence, fenceValue);
-	ASSERT_HR(hr);
-
-	return fenceValue + 1;
-}
-
-void BindVertexBuffer(ID3D12GraphicsCommandList* command_list, GpuBuffer const * vertex_buffer, u8 slot, u32 offset)
-{
-	D3D12_VERTEX_BUFFER_VIEW buffer_view;
-
-	buffer_view.BufferLocation = vertex_buffer->resource->GetGPUVirtualAddress();
-	buffer_view.SizeInBytes = vertex_buffer->desc.sizes_bytes;
-	buffer_view.StrideInBytes = vertex_buffer->desc.stride_in_bytes;
-	buffer_view.BufferLocation += static_cast<D3D12_GPU_VIRTUAL_ADDRESS>(offset);
-	buffer_view.SizeInBytes -= offset;
-
-	command_list->IASetVertexBuffers(static_cast<u32>(slot), 1, &buffer_view);
-}
-
-void BindVertexBuffers(ID3D12GraphicsCommandList* command_list, GpuBuffer const ** vertex_buffers, u8 slot, u8 count, u32 const* offsets)
-{
-	D3D12_VERTEX_BUFFER_VIEW buffer_views[256];
-
-	for (u32 i = 0; i < count; ++i)
+	void BeginPresent()
 	{
-		ASSERT(vertex_buffers[i] != nullptr);
-		GpuBuffer const* buffer = vertex_buffers[i];
+		g_gpu_device->BeginPresent();
+	}
+	
+	void EndPresent()
+	{
+		g_gpu_device->EndPresent();
+	}
 
-		buffer_views[i].BufferLocation = buffer->resource->GetGPUVirtualAddress();
-		buffer_views[i].SizeInBytes = buffer->desc.sizes_bytes;
-		buffer_views[i].StrideInBytes = buffer->desc.stride_in_bytes;
+	void TransitionBarrier(ID3D12Resource* resource, ID3D12GraphicsCommandList* cmd_list, ResourceState::Enum state_before, ResourceState::Enum state_after)
+	{
+		D3D12_RESOURCE_BARRIER barrier = CD3DX12_RESOURCE_BARRIER::Transition(
+			resource,
+			ResourceStateToDX12(state_before),
+			ResourceStateToDX12(state_after)
+		);
 
-		if (offsets)
+		cmd_list->ResourceBarrier(1, &barrier);
+	}
+
+	void TransitionBarriers(ID3D12Resource** resources, ID3D12GraphicsCommandList* cmd_list, u8 num_barriers, ResourceState::Enum state_before, ResourceState::Enum state_after)
+	{
+		ASSERT(resources);
+
+		D3D12_RESOURCE_BARRIER barriers[256];
+		for (u8 i = 0; i < num_barriers; ++i)
 		{
-			buffer_views[i].BufferLocation += static_cast<D3D12_GPU_VIRTUAL_ADDRESS>(offsets[i]);
-			buffer_views[i].SizeInBytes -= offsets[i];
+			ASSERT(resources[i]);
+
+			barriers[i].Transition.pResource = resources[i];
+			barriers[i].Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
+			barriers[i].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+			barriers[i].Transition.StateAfter = ResourceStateToDX12(state_after);
+			barriers[i].Transition.StateBefore = ResourceStateToDX12(state_before);
+			barriers[i].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+		}
+
+		cmd_list->ResourceBarrier(num_barriers, barriers);
+	}
+
+	void WaitForFenceValue(ID3D12Fence* fence, uint64_t fenceValue, HANDLE fenceEvent, u32 durationMS)
+	{
+		// TODO(pgPW): Add hang detection here. Set timer, wait interval, if not completed, assert.
+
+		if (fence->GetCompletedValue() < fenceValue)
+		{
+			HRESULT hr = fence->SetEventOnCompletion(fenceValue, fenceEvent);
+			ASSERT_HR(hr);
+			WaitForSingleObjectEx(fenceEvent, durationMS, FALSE);
 		}
 	}
 
-	command_list->IASetVertexBuffers(static_cast<u32>(slot), static_cast<u32>(count), buffer_views);
-}
-
-void BindIndexBuffer(ID3D12GraphicsCommandList* command_list, GpuBuffer const* index_buffer, u32 offset)
-{
-	D3D12_INDEX_BUFFER_VIEW buffer_view;
-	buffer_view.BufferLocation = index_buffer->resource->GetGPUVirtualAddress() + static_cast<D3D12_GPU_VIRTUAL_ADDRESS>(offset);
-	buffer_view.SizeInBytes = index_buffer->desc.sizes_bytes;
-	buffer_view.Format = index_buffer->desc.format;
-
-	command_list->IASetIndexBuffer(&buffer_view);
-}
-
-GpuBuffer CreateVertexBuffer(GpuDeviceDX12* gpu_device, void* vertex_data, u32 vertex_bytes, u32 vertex_stride_bytes)
-{
-	GpuBufferDesc desc;
-	MemZeroSafe(desc);
-	desc.usage = BufferUsage::Default;
-	desc.sizes_bytes = vertex_bytes;
-	desc.bind_flags = BindFlags::VertexBuffer;
-	desc.stride_in_bytes = vertex_stride_bytes;
-
-	GpuBuffer vertex_buffer = gpu_device->CreateBuffer(desc, vertex_data, vertex_bytes);
-
-	TransitionBarrier(
-		vertex_buffer.resource.Get(), 
-		gpu_device->GetCurrentCommandList(), 
-		ResourceState::Copy_Dest, 
-		ResourceState::Vertex_And_Constant_Buffer);
-
-	return vertex_buffer;
-}
-
-GpuBuffer CreateIndexBuffer(GpuDeviceDX12* gpu_device, void* index_data, u32 index_bytes)
-{
-	GpuBufferDesc desc;
-	MemZeroSafe(desc);
-	desc.usage = BufferUsage::Default;
-	desc.sizes_bytes = index_bytes;
-	desc.bind_flags = BindFlags::IndexBuffer;
-	desc.format = DXGI_FORMAT_R16_UINT;
-	desc.stride_in_bytes = sizeof(u16);
-
-	GpuBuffer index_buffer = gpu_device->CreateBuffer(desc, index_data, index_bytes);
-
-	TransitionBarrier(
-		index_buffer.resource.Get(),
-		gpu_device->GetCurrentCommandList(),
-		ResourceState::Copy_Dest,
-		ResourceState::Index_Buffer // ResourceState::Generic_Read?
-	);
-
-	return index_buffer;
-}
-
-Mesh CreateMesh(GpuDeviceDX12* gpu_device, void* vertex_data, u32 vertex_bytes, u32 vertex_stride_bytes, void* index_data, u32 index_bytes)
-{
-	Mesh mesh;
-	mesh.vertex_buffer_gpu = CreateVertexBuffer(gpu_device, vertex_data, vertex_bytes, vertex_stride_bytes);
-	mesh.index_buffer_gpu = CreateIndexBuffer(gpu_device, index_data, index_bytes);
-
-	return mesh;
-}
-
-void DrawMesh(Mesh const* mesh, ID3D12GraphicsCommandList* command_list)
-{
-	BindVertexBuffer(command_list, &mesh->vertex_buffer_gpu, 0, 0);
-	BindIndexBuffer(command_list, &mesh->index_buffer_gpu, 0);
-
-	for (SubMesh const& submesh : mesh->submeshes)
+	u64 Signal(ID3D12CommandQueue* commandQueue, ID3D12Fence* fence, u64 fenceValue)
 	{
-		command_list->DrawIndexedInstanced(submesh.num_indices, 1, submesh.first_index_location, submesh.base_vertex_location, 0);
+		HRESULT hr = commandQueue->Signal(fence, fenceValue);
+		ASSERT_HR(hr);
+
+		return fenceValue + 1;
+	}
+
+	void BindVertexBuffer(ID3D12GraphicsCommandList* command_list, GpuBuffer const * vertex_buffer, u8 slot, u32 offset)
+	{
+		D3D12_VERTEX_BUFFER_VIEW buffer_view;
+
+		buffer_view.BufferLocation = vertex_buffer->resource->GetGPUVirtualAddress();
+		buffer_view.SizeInBytes = vertex_buffer->desc.sizes_bytes;
+		buffer_view.StrideInBytes = vertex_buffer->desc.stride_in_bytes;
+		buffer_view.BufferLocation += static_cast<D3D12_GPU_VIRTUAL_ADDRESS>(offset);
+		buffer_view.SizeInBytes -= offset;
+
+		command_list->IASetVertexBuffers(static_cast<u32>(slot), 1, &buffer_view);
+	}
+
+	void BindVertexBuffers(ID3D12GraphicsCommandList* command_list, GpuBuffer const ** vertex_buffers, u8 slot, u8 count, u32 const* offsets)
+	{
+		D3D12_VERTEX_BUFFER_VIEW buffer_views[256];
+
+		for (u32 i = 0; i < count; ++i)
+		{
+			ASSERT(vertex_buffers[i] != nullptr);
+			GpuBuffer const* buffer = vertex_buffers[i];
+
+			buffer_views[i].BufferLocation = buffer->resource->GetGPUVirtualAddress();
+			buffer_views[i].SizeInBytes = buffer->desc.sizes_bytes;
+			buffer_views[i].StrideInBytes = buffer->desc.stride_in_bytes;
+
+			if (offsets)
+			{
+				buffer_views[i].BufferLocation += static_cast<D3D12_GPU_VIRTUAL_ADDRESS>(offsets[i]);
+				buffer_views[i].SizeInBytes -= offsets[i];
+			}
+		}
+
+		command_list->IASetVertexBuffers(static_cast<u32>(slot), static_cast<u32>(count), buffer_views);
+	}
+
+	void BindIndexBuffer(ID3D12GraphicsCommandList* command_list, GpuBuffer const* index_buffer, u32 offset)
+	{
+		D3D12_INDEX_BUFFER_VIEW buffer_view;
+		buffer_view.BufferLocation = index_buffer->resource->GetGPUVirtualAddress() + static_cast<D3D12_GPU_VIRTUAL_ADDRESS>(offset);
+		buffer_view.SizeInBytes = index_buffer->desc.sizes_bytes;
+		buffer_view.Format = index_buffer->desc.format;
+
+		command_list->IASetIndexBuffer(&buffer_view);
+	}
+
+	ComPtr<ID3D12GraphicsCommandList> CreateCommandList(D3D12_COMMAND_LIST_TYPE type, wchar_t* name)
+	{
+		return g_gpu_device->CreateCommandList(type, name);
+	}
+
+	void OpenCommandList(ID3D12GraphicsCommandList* cmd_list)
+	{
+		g_gpu_device->OpenCommandList(cmd_list);
+	}
+	
+	void EnqueueCommandList(ID3D12GraphicsCommandList* cmd_list)
+	{
+		g_gpu_device->CloseAndEnqueueCommandList(cmd_list);
+	}
+
+	void SubmitCommandList(ID3D12GraphicsCommandList* cmd_list)
+	{
+		g_gpu_device->CloseAndSubmitCommandList(cmd_list);
+	}
+
+	void FlushQueuedGraphicsWork()
+	{
+		g_gpu_device->FlushQueuedGraphicsWork();
+	}
+
+	GpuBuffer CreateVertexBuffer(GpuDeviceDX12* gpu_device, void* vertex_data, u32 vertex_bytes, u32 vertex_stride_bytes)
+	{
+		GpuBufferDesc desc;
+		MemZeroSafe(desc);
+		desc.usage = BufferUsage::Default;
+		desc.sizes_bytes = vertex_bytes;
+		desc.bind_flags = BindFlags::VertexBuffer;
+		desc.stride_in_bytes = vertex_stride_bytes;
+
+		GpuBuffer vertex_buffer = gpu_device->CreateBuffer(desc, vertex_data, vertex_bytes);
+
+		TransitionBarrier(
+			vertex_buffer.resource.Get(),
+			gpu_device->GetCurrentCommandList(),
+			ResourceState::Copy_Dest,
+			ResourceState::Vertex_And_Constant_Buffer);
+
+		return vertex_buffer;
+	}
+
+	GpuBuffer CreateIndexBuffer(GpuDeviceDX12* gpu_device, void* index_data, u32 index_bytes)
+	{
+		GpuBufferDesc desc;
+		MemZeroSafe(desc);
+		desc.usage = BufferUsage::Default;
+		desc.sizes_bytes = index_bytes;
+		desc.bind_flags = BindFlags::IndexBuffer;
+		desc.format = DXGI_FORMAT_R16_UINT;
+		desc.stride_in_bytes = sizeof(u16);
+
+		GpuBuffer index_buffer = gpu_device->CreateBuffer(desc, index_data, index_bytes);
+
+		TransitionBarrier(
+			index_buffer.resource.Get(),
+			gpu_device->GetCurrentCommandList(),
+			ResourceState::Copy_Dest,
+			ResourceState::Index_Buffer // ResourceState::Generic_Read?
+		);
+
+		return index_buffer;
+	}
+
+	Mesh CreateMesh(GpuDeviceDX12* gpu_device, void* vertex_data, u32 vertex_bytes, u32 vertex_stride_bytes, void* index_data, u32 index_bytes)
+	{
+		Mesh mesh;
+		mesh.vertex_buffer_gpu = CreateVertexBuffer(gpu_device, vertex_data, vertex_bytes, vertex_stride_bytes);
+		mesh.index_buffer_gpu = CreateIndexBuffer(gpu_device, index_data, index_bytes);
+
+		return mesh;
+	}
+
+	void DrawMesh(Mesh const* mesh, ID3D12GraphicsCommandList* command_list)
+	{
+		BindVertexBuffer(command_list, &mesh->vertex_buffer_gpu, 0, 0);
+		BindIndexBuffer(command_list, &mesh->index_buffer_gpu, 0);
+
+		for (SubMesh const& submesh : mesh->submeshes)
+		{
+			command_list->DrawIndexedInstanced(submesh.num_indices, 1, submesh.first_index_location, submesh.base_vertex_location, 0);
+		}
 	}
 }

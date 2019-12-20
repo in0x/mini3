@@ -21,11 +21,15 @@ typedef int64_t s64;
 typedef float f32;
 typedef double f64;
 
+typedef std::atomic<u32> atomic_u32;
+
 static constexpr size_t MAX_DEBUG_MSG_SIZE = 1024;
 thread_local static char g_debugFmtBuffer[MAX_DEBUG_MSG_SIZE];
 thread_local static char g_debugMsgBuffer[MAX_DEBUG_MSG_SIZE];
 
 using ScopedLock = std::lock_guard<std::mutex>;
+
+constexpr size_t NUM_MAX_THREADS = 8;
 
 static constexpr size_t BytesToKiloBytes(size_t bytes)
 {
@@ -137,28 +141,4 @@ inline void MemZeroSafe(T& data)
 {
 	static_assert(std::is_trivially_copyable<T>::value, "Cannot memzero non-trivial type!");
 	memzero(&data, sizeof(T));
-}
-
-inline ptrdiff_t GetAlignmentAdjustment(u8* raw, size_t alignment)
-{
-	uintptr_t ptr = reinterpret_cast<uintptr_t>(raw);
-
-	size_t mask = (alignment - 1);
-	uintptr_t misalignment = (ptr & mask);
-	return alignment - misalignment;
-}
-
-inline u8* AlignAddress(u8* raw, size_t alignment)
-{
-	ptrdiff_t adjust = GetAlignmentAdjustment(raw, alignment);
-
-	u8* aligned = raw + adjust;
-	return aligned;
-}
-
-inline u64 AlignValue(u64 value, size_t alignment)
-{
-	size_t mask = (alignment - 1);
-	uintptr_t misalignment = (value & mask);
-	return value + (alignment - misalignment);
 }

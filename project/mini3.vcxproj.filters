@@ -22,5 +22,7 @@
     <ClInclude Include="..\src\FrameTimer.h" />
     <ClInclude Include="..\src\GpuDeviceDX12.h" />
     <ClInclude Include="..\src\Math.h" />
+    <ClInclude Include="..\src\GeoUtils.h" />
+    <ClInclude Include="..\src\MemUtils.h" />
   </ItemGroup>
 </Project>

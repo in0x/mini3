@@ -7,46 +7,62 @@
 //  Math Types
 // ====================================
 
-struct Vec3
+struct float2
 {
-	float x;
-	float y;
-	float z;
+	f32 x;
+	f32 y;
 };
 
-struct Vec4
+struct float3
 {
-	float x;
-	float y;
-	float z;
-	float w;
+	f32 x;
+	f32 y;
+	f32 z;
 };
 
-struct Mtx34
+struct float4
 {
-	float row_column[3][4];
+	f32 x;
+	f32 y;
+	f32 z;
+	f32 w;
+};
+
+struct mtx34
+{
+	f32 row_column[3][4];
 };
 
 // ====================================
 //  Math Funcs
 // ====================================
 
-MM_FORCEINL Vec3 Vec3Zero()
+MM_FORCEINL float3 operator-(float3 f)
 {
-	return Vec3{ 0.0f, 0.0f, 0.0f };
+	return { -f.x, -f.y, -f.z };
 }
 
-MM_FORCEINL Vec3 Vec3One()
+MM_FORCEINL float3 operator+(float3 f)
 {
-	return Vec3{ 1.0f, 1.0f, 1.0f };
+	return f;
 }
 
-MM_FORCEINL Vec3 Vec3Make(float x, float y, float z)
+MM_FORCEINL float3 Vec3Zero()
 {
-	return Vec3{ x, y, z };
+	return float3{ 0.0f, 0.0f, 0.0f };
 }
 
-MM_FORCEINL Vec3 Vec3Add(Vec3 lhs, Vec3 rhs)
+MM_FORCEINL float3 Vec3One()
 {
-	return Vec3{ lhs.x + rhs.x, lhs.y + rhs.y, lhs.z + rhs.z, };
+	return float3{ 1.0f, 1.0f, 1.0f };
+}
+
+MM_FORCEINL float3 Vec3Make(float x, float y, float z)
+{
+	return float3{ x, y, z };
+}
+
+MM_FORCEINL float3 Vec3Add(float3 lhs, float3 rhs)
+{
+	return float3{ lhs.x + rhs.x, lhs.y + rhs.y, lhs.z + rhs.z, };
 }
