@@ -21,14 +21,7 @@ public:
 	{
 		ConstIterator(T const* ptr) : elem_ptr(ptr) {}
 
-		T const* elem_ptr;
-
-		operator T const*()
-		{
-			return elem_ptr;
-		}
-
-		operator T const&()
+		T const& operator*() const
 		{
 			return *elem_ptr;
 		}
@@ -48,7 +41,23 @@ public:
 			elem_ptr++;
 			return *this;
 		}
+
+	private:
+		T const* elem_ptr;
 	};
+
+	Array()
+		: m_size(0)
+	{
+		memzero(m_data, sizeof(T) * m_size);
+	}
+
+	Array& operator=(Array const& other)
+	{
+		m_size = other.Size();
+		memcpy(m_data, other.m_data, sizeof(T) * m_size);
+		return *this;
+	}
 
 	void Reserve(u32 count)
 	{
@@ -66,16 +75,28 @@ public:
 		m_size = 0;
 	}
 
+	u32 IndexOf(T* ptr)
+	{
+		ASSERT(ptr >= m_data && ptr < m_data + Capacity);
+		return static_cast<u32>(ptr - m_data);
+	}
+
 	T* PushBack()
 	{
 		ASSERT_F(m_size < Capacity, "Array exceeded capacity %u!", Capacity);
 		return &m_data[m_size++];
 	}
 
-	void PushBack(T value)
+	void PushBack(T const& value)
 	{
 		ASSERT_F(m_size < Capacity, "Array exceeded capacity %u!", Capacity);
 		m_data[m_size++] = value;
+	}
+
+	void PushBack(T&& value)
+	{
+		ASSERT_F(m_size < Capacity, "Array exceeded capacity %u!", Capacity);
+		m_data[m_size++] = std::move(value);
 	}
 
 	T* TryPushBack()
@@ -106,12 +127,12 @@ public:
 		return m_data[index];
 	}
 
-	ConstIterator<T> begin() const
+	ConstIterator<T> const begin() const
 	{
 		return ConstIterator<T>( m_data );
 	}
 
-	ConstIterator<T> end() const
+	ConstIterator<T> const end() const
 	{
 		return ConstIterator<T>( &m_data[m_size] );
 	}

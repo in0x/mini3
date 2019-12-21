@@ -8,12 +8,29 @@ void MiniApp::Init()
 {
 	__super::Init();
 
-	RegisterCommandProducerThread();
-
-	Gfx::CreateGpuDevice(GetNativeHandle(), GpuDeviceDX12::InitFlags::Enable_Debug_Layer | GpuDeviceDX12::InitFlags::Allow_Tearing);
+	Gfx::RegisterCommandProducerThread();
+	Gfx::CreateGpuDevice(GetNativeHandle(), Gfx::InitFlags::Enable_Debug_Layer | Gfx::InitFlags::Allow_Tearing);
 
 	GeoUtils::CubeGeometry cube;
 	GeoUtils::CreateBox(2.0f, 2.0f, 2.0f, &cube);
+
+	// TOOD: test the copy queue with this.
+	m_geo_upload_cmds = Gfx::CreateCommandList(D3D12_COMMAND_LIST_TYPE_DIRECT, L"geo_upload_cmds");
+	Gfx::OpenCommandList(m_geo_upload_cmds);
+
+	Gfx::Mesh mesh;
+	u32 const vertex_size = sizeof(GeoUtils::Vertex);
+	mesh.vertex_buffer_gpu = Gfx::CreateVertexBuffer(m_geo_upload_cmds, cube.vertices, vertex_size * GeoUtils::CubeGeometry::num_vertices, vertex_size);
+	mesh.index_buffer_gpu = Gfx::CreateIndexBuffer(m_geo_upload_cmds, cube.indices, sizeof(GeoUtils::Index));
+
+	Gfx::SubMesh* submesh = mesh.submeshes.PushBack();
+	submesh->num_indices = cube.num_indices;
+	submesh->base_vertex_location = 0;
+	submesh->first_index_location = 0;
+
+	f64 upload_fence = Gfx::SubmitCommandList(m_geo_upload_cmds);
+
+	Gfx::WaitForFenceValueCpuBlocking(upload_fence);
 }
 
 bool MiniApp::Update()

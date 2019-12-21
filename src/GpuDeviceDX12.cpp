@@ -8,6 +8,338 @@ static constexpr size_t GPU_RESOURCE_HEAP_SRV_COUNT = 64;
 static constexpr size_t GPU_RESOURCE_HEAP_UAV_COUNT = 8;
 static constexpr size_t GPU_RESOURCE_HEAP_CBV_SRV_UAV_COUNT = GPU_RESOURCE_HEAP_CBV_COUNT + GPU_RESOURCE_HEAP_SRV_COUNT + GPU_RESOURCE_HEAP_UAV_COUNT;
 
+using namespace Gfx;
+
+class CommandQueue
+{
+public:
+	CommandQueue();
+
+	void Create(ID3D12Device* device, D3D12_COMMAND_LIST_TYPE cmd_type);
+	void Release();
+
+	bool IsFenceComplete(u64 fence_value);
+	void InsertGpuWait(u64 fence_value);
+	void InsertGpuWaitForOtherQueue(CommandQueue* other_queue, u64 fence_value);
+	void InsertGpuWaitForOtherQueue(CommandQueue* other_queue);
+
+	void WaitForFenceCpuBlocking(u64 fence_value);
+	void WaitForQueueFinishedCpuBlocking() { WaitForFenceCpuBlocking(m_next_fence_value - 1); }
+
+	ID3D12CommandQueue* GetQueue() { return m_cmd_queue.Get(); }
+
+	u64 FetchCurrentFenceValue();
+	u64 GetLastCompletedFence() const { return m_last_completed_fence_value; }
+	u64 GetNextFenceValue() const { return m_next_fence_value; }
+	ID3D12Fence* GetFence() { return m_fence.Get(); }
+
+	u64 ExecuteCommandList(ID3D12CommandList* cmd_list);
+	u64 ExecuteCommandLists(ID3D12CommandList** cmd_lists, u32 count);
+
+private:
+#ifdef _DEBUG
+	bool CommandQueue::IsFenceFromThisQueue(u64 fence);
+#endif
+
+	ComPtr<ID3D12CommandQueue> m_cmd_queue;
+	D3D12_COMMAND_LIST_TYPE m_queue_type;
+
+	std::mutex m_fence_mutex;
+	std::mutex m_event_mutex;
+
+	ComPtr<ID3D12Fence> m_fence;
+	u64 m_next_fence_value;
+	u64 m_last_completed_fence_value;
+	HANDLE m_fence_event_handle;
+};
+
+class CommandQueueManager
+{
+public:
+	void Create(ID3D12Device* device);
+	void Release();
+
+	CommandQueue* GetGraphicsQueue() { return &m_graphics; }
+	CommandQueue* GetComputeQueue() { return &m_compute; }
+	CommandQueue* GetCopyQueue() { return &m_copy; }
+
+	CommandQueue* GetQueue(D3D12_COMMAND_LIST_TYPE type);
+
+	u64 ExecuteCommandList(ID3D12CommandList* cmd_list);
+
+	bool IsFenceComplete(u64 fence_value);
+	void WaitForFenceCpuBlocking(u64 fence_value);
+	void WaitForAllQueuesFinished();
+
+private:
+	CommandQueue m_graphics;
+	CommandQueue m_compute;
+	CommandQueue m_copy;
+};
+
+class DescriptorTableFrameAllocator
+{
+public:
+	void Create(ID3D12Device* device, D3D12_DESCRIPTOR_HEAP_TYPE type, u32 max_rename_count);
+	void Destroy();
+
+	void Reset(ID3D12Device* device, D3D12_CPU_DESCRIPTOR_HANDLE* null_descriptors_sampler_cbv_srv_uav);
+	void BindDescriptor(Gfx::ShaderStage::Enum stage, u32 offset, D3D12_CPU_DESCRIPTOR_HANDLE const* descriptor, ID3D12Device* device);
+	void Update(ID3D12Device* device, ID3D12GraphicsCommandList* command_list);
+
+	ID3D12DescriptorHeap* GetGpuHeap() { return m_heap_gpu.Get(); }
+	ID3D12DescriptorHeap* GetCpuHeap() { return m_heap_cpu.Get(); }
+
+private:
+	size_t GetBoundDescriptorHeapSize() const;
+
+	ComPtr<ID3D12DescriptorHeap> m_heap_cpu = nullptr;
+	ComPtr<ID3D12DescriptorHeap> m_heap_gpu = nullptr;
+	D3D12_DESCRIPTOR_HEAP_TYPE m_descriptor_type = D3D12_DESCRIPTOR_HEAP_TYPE_NUM_TYPES;
+	u32 m_item_size = 0;
+	u32 m_item_count = 0;
+	u32 m_ring_offset = 0;
+	bool m_is_dirty[Gfx::ShaderStage::Count];
+	D3D12_CPU_DESCRIPTOR_HANDLE const** m_bound_descriptors = nullptr;
+};
+
+class UploadBufferAllocator
+{
+public:
+	void Create(ID3D12Device* device, size_t size_bytes);
+	void Clear();
+
+	u8* Allocate(size_t size_bytes, size_t alignment);
+	u64 CalculateOffset(u8* address);
+
+	inline ID3D12Resource* GetRootBuffer() { return m_resource.Get(); }
+
+private:
+	ComPtr<ID3D12Resource> m_resource = nullptr;
+	std::mutex m_allocation_lock;
+	u8* m_data_begin = 0;
+	u8* m_data_current = 0;
+	u8* m_data_end = 0;
+};
+
+class DescriptorAllocator
+{
+public:
+	void Create(ID3D12Device* device, D3D12_DESCRIPTOR_HEAP_TYPE type, u32 max_count);
+	u64 Allocate();
+
+private:
+	ComPtr<ID3D12DescriptorHeap> m_heap = nullptr;
+	std::atomic<u32> m_item_count = 0;
+	D3D12_DESCRIPTOR_HEAP_TYPE m_type;
+	u32 m_max_count = 0;
+	u32 m_item_size = 0;
+};
+
+class CommandAllocator
+{
+public:
+	void Create(ID3D12Device* device);
+	void Destroy();
+	void Reset();
+
+	ID3D12CommandAllocator* GetAllocator(D3D12_COMMAND_LIST_TYPE type);
+private:
+	ID3D12CommandAllocator** GetAllocatorSet(D3D12_COMMAND_LIST_TYPE type);
+
+	ID3D12CommandAllocator** m_gfx_allocators = nullptr;
+	ID3D12CommandAllocator** m_copy_allocators = nullptr;
+	ID3D12CommandAllocator** m_compute_allocators = nullptr;
+};
+
+class CommandListManager
+{
+public:
+	CommandListManager();
+
+	ID3D12GraphicsCommandList** GetListSetByType(D3D12_COMMAND_LIST_TYPE type);
+	ID3D12GraphicsCommandList** GetCommandListSlot(s32 thread_id, D3D12_COMMAND_LIST_TYPE type);
+
+	void OpenCommandList(ID3D12GraphicsCommandList* cmdlist, CommandAllocator* allocator);
+	void CloseCommandList(ID3D12GraphicsCommandList* cmdlist);
+	bool EnsureAllCommandListsClosed();
+
+private:
+	ID3D12GraphicsCommandList* m_active_gfx_lists[NUM_MAX_THREADS];
+	ID3D12GraphicsCommandList* m_active_copy_lists[NUM_MAX_THREADS];
+	ID3D12GraphicsCommandList* m_active_compute_lists[NUM_MAX_THREADS];
+};
+
+struct FrameResource
+{
+	u64 end_of_frame_fence;
+
+	Gfx::Commandlist command_list;
+	CommandAllocator cmd_allocator;
+	CommandListManager cmd_list_manager;
+	ComPtr<ID3D12Resource> render_target;
+
+	DescriptorTableFrameAllocator resource_descriptors_gpu;
+	DescriptorTableFrameAllocator sampler_descriptors_gpu;
+
+	UploadBufferAllocator transient_upload_buffers;
+
+	typedef Array<ID3D12GraphicsCommandList*, NUM_MAX_THREADS, AtomicCounterPolicy> WorkQueue;
+	WorkQueue queued_work;
+
+	void CloseCommandList(ID3D12GraphicsCommandList* cmd_list)
+	{
+		cmd_list_manager.CloseCommandList(cmd_list);
+	}
+
+	void CloseAndQueueCommandList(ID3D12GraphicsCommandList* cmd_list)
+	{
+		cmd_list_manager.CloseCommandList(cmd_list);
+
+		ScopedLock lock(submit_lock);
+		queued_work.PushBack(cmd_list);
+	}
+
+	void PumpQueuedWork(WorkQueue* out_queue)
+	{
+		ScopedLock lock(submit_lock);
+		*out_queue = queued_work;
+		queued_work.Clear();
+	}
+
+	inline ID3D12CommandAllocator* GetGfxCmdAllocator()
+	{
+		return cmd_allocator.GetAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT);
+	}
+
+	inline ID3D12CommandAllocator* GetComputeCmdAllocator()
+	{
+		return cmd_allocator.GetAllocator(D3D12_COMMAND_LIST_TYPE_COMPUTE);
+	}
+
+	inline ID3D12CommandAllocator* GetCopyCmdAllocator()
+	{
+		return cmd_allocator.GetAllocator(D3D12_COMMAND_LIST_TYPE_COPY);
+	}
+
+private:
+	std::mutex submit_lock;
+};
+
+
+class GpuDeviceDX12
+{
+public:
+	void Init(void* windowHandle, u32 initFlags);
+	void Destroy();
+	bool IsTearingAllowed();
+
+	void BeginPresent();
+	void EndPresent();
+	void MoveToNextFrame();
+	void Flush();
+
+	Gfx::GpuBuffer CreateBuffer(ID3D12GraphicsCommandList* cmd_list, Gfx::GpuBufferDesc const& desc, void* initial_data, u32 initial_data_bytes);
+
+	inline ID3D12Device* GetD3DDevice() const { return m_d3d_device.Get(); }
+	inline Gfx::Commandlist GetCurrentCommandList() { return m_frame_resource[m_frame_index].command_list; }
+	ID3D12GraphicsCommandList* HandleToCommandList(Gfx::Commandlist handle);
+
+	Gfx::Commandlist CreateCommandList(D3D12_COMMAND_LIST_TYPE type, wchar_t* name = nullptr);
+
+	void OpenCommandList(Gfx::Commandlist handle);
+	void CloseAndQueueCommandListForSubmit(Gfx::Commandlist handle);
+	u64 CloseAndSubmitCommandList(Gfx::Commandlist handle);
+	u64 FlushQueuedGraphicsWork();
+	void WaitForFenceValueCpuBlocking(u64 fenceValue);
+
+private:
+	void enableDebugLayer();
+	bool checkTearingSupport();
+	void createDevice(bool bEnableDebugLayer);
+	void checkFeatureLevel();
+	void createDescriptorHeaps();
+	void createGraphicsRootSig();
+	void createComputeRootSig();
+	void createNullResources();
+
+	void updateSwapchain(u32 width, u32 height);
+	void resizeSwapChain(u32 width, u32 height, DXGI_FORMAT format);
+	void createSwapChain(u32 width, u32 height, DXGI_FORMAT format);
+	void updateColorSpace();
+	void createDepthBuffer(u32 width, u32 height);
+	void UpdateViewportScissorRect(u32 width, u32 height);
+
+	CD3DX12_CPU_DESCRIPTOR_HANDLE GetRenderTargetView() const;
+	CD3DX12_CPU_DESCRIPTOR_HANDLE GetDepthStencilView() const;
+
+	inline IDXGISwapChain3*           GetSwapChain() const { return m_swap_chain.Get(); }
+	inline D3D12_VIEWPORT             GetScreenViewport() const { return m_screen_viewport; }
+	inline D3D12_RECT                 GetScissorRect() const { return m_scissor_rect; }
+	inline u32	                      GetCurrentFrameIndex() const { return m_frame_index; }
+
+	inline ID3D12Resource*			  GetCurrentRenderTarget() const { return m_frame_resource[m_frame_index].render_target.Get(); }
+
+	u32									m_frame_index;
+	u32									m_init_flags;
+	u32									m_backbuffer_width;
+	u32									m_backbuffer_height;
+
+	ComPtr<ID3D12Device>                m_d3d_device;
+	CommandQueueManager					m_cmd_queue_mng;
+
+	// Swap chain objects.
+	ComPtr<IDXGIFactory4>               m_dxgi_factory;
+	ComPtr<IDXGISwapChain3>             m_swap_chain;
+	ComPtr<ID3D12Resource>              m_depth_stencil;
+
+	// Direct3D rendering objects.
+	ComPtr<ID3D12DescriptorHeap>        m_rtv_descriptor_heap;
+	ComPtr<ID3D12DescriptorHeap>        m_dsv_descriptor_heap;
+	u32									m_rtv_descriptor_size;
+	D3D12_VIEWPORT                      m_screen_viewport;
+	D3D12_RECT                          m_scissor_rect;
+
+	// Direct3D properties.
+	DXGI_FORMAT                         m_backbuffer_format;
+	DXGI_FORMAT                         m_depthbuffer_format;
+	D3D_FEATURE_LEVEL                   m_d3d_min_feature_level;
+	DXGI_COLOR_SPACE_TYPE               m_color_space;
+
+	// Cached device properties.
+	HWND                                m_window;
+	D3D_FEATURE_LEVEL                   m_d3d_feature_level;
+	DWORD                               m_dxgi_factory_flags;
+	RECT                                m_output_size;
+
+	ComPtr<ID3D12RootSignature>			m_graphics_root_sig;
+	ComPtr<ID3D12RootSignature>			m_compute_root_sig;
+
+	D3D12_CPU_DESCRIPTOR_HANDLE			m_null_sampler;
+	D3D12_CPU_DESCRIPTOR_HANDLE			m_null_cbv;
+	D3D12_CPU_DESCRIPTOR_HANDLE			m_null_srv;
+	D3D12_CPU_DESCRIPTOR_HANDLE			m_null_uav;
+
+	FrameResource m_frame_resource[MAX_FRAME_COUNT];
+	inline FrameResource* GetFrameResources() { return m_frame_resource + m_frame_index; }
+	void createFrameResources();
+	void destroyFrameResource();
+
+	DescriptorAllocator m_rt_alloctor;
+	DescriptorAllocator m_ds_allocator;
+	DescriptorAllocator m_resource_allocator;
+	DescriptorAllocator m_sampler_allocator;
+
+	enum { MAX_CMD_LISTS = 30 };
+	Array<ID3D12GraphicsCommandList*, MAX_CMD_LISTS, AtomicCounterPolicy> m_external_cmd_lists;
+
+	ComPtr<ID3D12GraphicsCommandList> CreateCommandListInternal(D3D12_COMMAND_LIST_TYPE type, wchar_t* name);
+
+	//ResourceAllocator m_buffer_upload_allocator;
+	//ResourceAllocator m_texture_upload_allocator;
+};
+
+
 size_t DescriptorTableFrameAllocator::GetBoundDescriptorHeapSize() const
 {
 	return ShaderStage::Count * m_item_count;
@@ -164,7 +496,7 @@ void DescriptorTableFrameAllocator::Update(ID3D12Device* device, ID3D12GraphicsC
 	}
 }
 
-void ResourceAllocator::Create(ID3D12Device* device, size_t size_bytes)
+void UploadBufferAllocator::Create(ID3D12Device* device, size_t size_bytes)
 {
 	CD3DX12_HEAP_PROPERTIES heap_props(D3D12_HEAP_TYPE_UPLOAD);
 	CD3DX12_RESOURCE_DESC buffer_desc = CD3DX12_RESOURCE_DESC::Buffer(size_bytes);
@@ -190,8 +522,10 @@ void ResourceAllocator::Create(ID3D12Device* device, size_t size_bytes)
 	m_data_end = m_data_begin + size_bytes;
 }
 
-u8* ResourceAllocator::Allocate(size_t size_bytes, size_t alignment)
+u8* UploadBufferAllocator::Allocate(size_t size_bytes, size_t alignment)
 {
+	ScopedLock lock(m_allocation_lock);
+
 	ptrdiff_t alignment_padding = Memory::GetAlignmentAdjustment(m_data_current, alignment);
 	ASSERT((m_data_current + size_bytes + alignment_padding) <= m_data_end);
 
@@ -201,14 +535,16 @@ u8* ResourceAllocator::Allocate(size_t size_bytes, size_t alignment)
 	return allocation;
 }
 
-u64 ResourceAllocator::CalculateOffset(u8* address)
+u64 UploadBufferAllocator::CalculateOffset(u8* address)
 {
 	ASSERT(address >= m_data_begin && address < m_data_end);
 	return static_cast<u64>(address - m_data_begin);
 }
 
-void ResourceAllocator::Clear()
+void UploadBufferAllocator::Clear()
 {
+	ScopedLock lock(m_allocation_lock);
+
 	m_data_current = m_data_begin;
 }
 
@@ -243,10 +579,13 @@ constexpr s32 invalid_cmd_thread_id = -1;
 thread_local s32 tls_cmd_allocator_idx = invalid_cmd_thread_id;
 static atomic_u32 g_cmd_threads_registered = 0;
 
-void RegisterCommandProducerThread()
+namespace Gfx
 {
-	ASSERT(g_cmd_threads_registered.load() < NUM_MAX_THREADS);
-	tls_cmd_allocator_idx = g_cmd_threads_registered++;
+	void RegisterCommandProducerThread()
+	{
+		ASSERT(g_cmd_threads_registered.load() < NUM_MAX_THREADS);
+		tls_cmd_allocator_idx = g_cmd_threads_registered++;
+	}
 }
 
 inline bool IsValidCommandProducerThread()
@@ -572,8 +911,8 @@ void GpuDeviceDX12::BeginPresent()
 	ASSERT(frame->cmd_list_manager.EnsureAllCommandListsClosed());
 	frame->cmd_allocator.Reset();
 
-	ID3D12GraphicsCommandList* cmdlist = frame->GetFrameCmdList();
-	OpenCommandList(cmdlist);
+	ID3D12GraphicsCommandList* cmdlist = HandleToCommandList(frame->command_list);
+	OpenCommandList(frame->command_list);
 
 	ID3D12DescriptorHeap* heaps[] = 
 	{
@@ -595,10 +934,10 @@ void GpuDeviceDX12::BeginPresent()
 
 	frame->resource_descriptors_gpu.Reset(GetD3DDevice(), null_descriptors);
 	frame->sampler_descriptors_gpu.Reset(GetD3DDevice(), null_descriptors);
-	frame->transient_resource_allocator.Clear();
+	frame->transient_upload_buffers.Clear();
 
 	// Transition the render target into the correct state to allow for drawing into it.
-	Gfx::TransitionBarrier(GetCurrentRenderTarget(), cmdlist, ResourceState::Present, ResourceState::Render_Target);
+	Gfx::TransitionBarrier(GetCurrentRenderTarget(), frame->command_list, ResourceState::Present, ResourceState::Render_Target);
 
 	// Set the viewport and scissor rect.
 	{
@@ -627,17 +966,17 @@ void GpuDeviceDX12::EndPresent()
 	ID3D12Device* device = GetD3DDevice();
 
 	FrameResource* frame = GetFrameResources();
-	ID3D12GraphicsCommandList* cmdlist = frame->GetFrameCmdList();
+	ID3D12GraphicsCommandList* cmdlist = HandleToCommandList(frame->command_list);
 
 	frame->resource_descriptors_gpu.Update(device, cmdlist);
 	frame->sampler_descriptors_gpu.Update(device, cmdlist);
 
 	// Transition the render target to the state that allows it to be presented to the display.
-	Gfx::TransitionBarrier(GetCurrentRenderTarget(), cmdlist, ResourceState::Render_Target, ResourceState::Present);
+	Gfx::TransitionBarrier(GetCurrentRenderTarget(), frame->command_list, ResourceState::Render_Target, ResourceState::Present);
 
 	// Send the command list off to the GPU for processing.
-	CloseAndEnqueueCommandList(cmdlist);
-	frame->SubmitQueuedWork(m_cmd_queue_mng.GetGraphicsQueue());
+	CloseAndQueueCommandListForSubmit(frame->command_list);
+	frame->end_of_frame_fence = FlushQueuedGraphicsWork();
 
 	HRESULT hr = S_OK;
 	if (IsTearingAllowed())
@@ -840,14 +1179,19 @@ void GpuDeviceDX12::Init(void* windowHandle, u32 initFlags)
 	m_resource_allocator.Create(device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 4096);
 	m_sampler_allocator.Create(device, D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER, 64);
 
-	m_buffer_upload_allocator.Create(device, 256 * 1024 * 1024); // TODO: reset
-	m_texture_upload_allocator.Create(device, 256 * 1024 * 1024); // TODO: reset
+	//m_buffer_upload_allocator.Create(device, 256 * 1024 * 1024); // TODO: reset
+	//m_texture_upload_allocator.Create(device, 256 * 1024 * 1024); // TODO: reset
 
 	createNullResources();
 }
 
 void GpuDeviceDX12::Destroy()
 {
+	for (ID3D12GraphicsCommandList* cmd_list : m_external_cmd_lists)
+	{
+		cmd_list->Release();
+	}
+
 	destroyFrameResource();
 }
 
@@ -1417,52 +1761,81 @@ static ComPtr<ID3D12CommandAllocator> CreateCommandAllocator(ID3D12Device* devic
 	return cmd_allocator;
 }
 
-ComPtr<ID3D12GraphicsCommandList> GpuDeviceDX12::CreateCommandList(D3D12_COMMAND_LIST_TYPE type, wchar_t* name)
+ComPtr<ID3D12GraphicsCommandList> GpuDeviceDX12::CreateCommandListInternal(D3D12_COMMAND_LIST_TYPE type, wchar_t* name)
 {
-	ComPtr<ID3D12GraphicsCommandList> cmd_list;
+	ComPtr<ID3D12GraphicsCommandList> cmd_list = nullptr;
 
 	HRESULT cmdListCreated = m_d3d_device->CreateCommandList(
 		0,
 		type,
 		GetFrameResources()->cmd_allocator.GetAllocator(type),
 		nullptr,
-		IID_PPV_ARGS(&cmd_list));
+		IID_PPV_ARGS(cmd_list.GetAddressOf()));
 
 	ASSERT_HR(cmdListCreated);
 
-	HRESULT closed = cmd_list->Close(); 
+	HRESULT closed = cmd_list->Close();
 	ASSERT_HR(closed);
 
 	if (name)
 	{
 		cmd_list->SetName(name);
 	}
-	
+
 	return cmd_list;
 }
 
-void GpuDeviceDX12::OpenCommandList(ID3D12GraphicsCommandList* cmd_list)
+Gfx::Commandlist GpuDeviceDX12::CreateCommandList(D3D12_COMMAND_LIST_TYPE type, wchar_t* name)
 {
+	ID3D12GraphicsCommandList* cmd_list = CreateCommandListInternal(type, name).Detach();
+	ID3D12GraphicsCommandList** next_slot = m_external_cmd_lists.PushBack();
+	*next_slot = cmd_list;
+
+	return Gfx::Commandlist{ (s32)m_external_cmd_lists.IndexOf(next_slot) };
+}
+
+ID3D12GraphicsCommandList* GpuDeviceDX12::HandleToCommandList(Gfx::Commandlist handle)
+{
+	ASSERT(handle.IsValid());
+	return m_external_cmd_lists[handle.handle];
+}
+
+void GpuDeviceDX12::OpenCommandList(Gfx::Commandlist handle)
+{
+	ID3D12GraphicsCommandList* cmd_list = HandleToCommandList(handle);
+
 	FrameResource* frame_resource = GetFrameResources();
 	CommandAllocator* cmd_allocator = &frame_resource->cmd_allocator;
 
 	frame_resource->cmd_list_manager.OpenCommandList(cmd_list, cmd_allocator);
 }
 
-void GpuDeviceDX12::CloseAndEnqueueCommandList(ID3D12GraphicsCommandList* cmd_list)
+void GpuDeviceDX12::CloseAndQueueCommandListForSubmit(Gfx::Commandlist handle)
 {
-	GetFrameResources()->CloseAndSubmitCommandList(cmd_list);
+	ID3D12GraphicsCommandList* cmd_list = HandleToCommandList(handle);
+	GetFrameResources()->CloseAndQueueCommandList(cmd_list);
 }
 
-u64 GpuDeviceDX12::CloseAndSubmitCommandList(ID3D12GraphicsCommandList* cmd_list)
+u64 GpuDeviceDX12::CloseAndSubmitCommandList(Gfx::Commandlist handle)
 {
+	ID3D12GraphicsCommandList* cmd_list = HandleToCommandList(handle);
+
 	GetFrameResources()->CloseCommandList(cmd_list);
 	return m_cmd_queue_mng.ExecuteCommandList(cmd_list);
 }
 
-void GpuDeviceDX12::FlushQueuedGraphicsWork()
+u64 GpuDeviceDX12::FlushQueuedGraphicsWork()
 {
-	return GetFrameResources()->SubmitQueuedWork(m_cmd_queue_mng.GetGraphicsQueue());
+	FrameResource::WorkQueue work;
+	GetFrameResources()->PumpQueuedWork(&work);
+
+	CommandQueue* gfx_queue = m_cmd_queue_mng.GetGraphicsQueue();
+	return gfx_queue->ExecuteCommandLists((ID3D12CommandList**)work.Data(), work.Size());
+}
+
+void GpuDeviceDX12::WaitForFenceValueCpuBlocking(u64 fenceValue)
+{
+	m_cmd_queue_mng.WaitForFenceCpuBlocking(fenceValue);
 }
 
 static ComPtr<ID3D12Resource> CreateRenderTarget(ID3D12Device* device, ID3D12DescriptorHeap* heap, IDXGISwapChain3* swap_chain, DXGI_FORMAT format, u32 descriptor_size, u32 frame_idx)
@@ -1501,7 +1874,7 @@ void GpuDeviceDX12::createFrameResources()
 
 		m_frame_resource[i].resource_descriptors_gpu.Create(device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 1024);
 		m_frame_resource[i].sampler_descriptors_gpu.Create(device, D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER, 16);
-		m_frame_resource[i].transient_resource_allocator.Create(device, 1024 * 1024 * 128);
+		m_frame_resource[i].transient_upload_buffers.Create(device, 1024 * 1024 * 128);
 	}
 }
 
@@ -1513,7 +1886,7 @@ void GpuDeviceDX12::destroyFrameResource()
 	}
 }
 
-GpuBuffer GpuDeviceDX12::CreateBuffer(GpuBufferDesc const& desc, void* initial_data, u32 initial_data_bytes)
+GpuBuffer GpuDeviceDX12::CreateBuffer(ID3D12GraphicsCommandList* cmd_list, GpuBufferDesc const& desc, void* initial_data, u32 initial_data_bytes)
 {
 	GpuBuffer buffer;
 	buffer.desc = desc;
@@ -1548,17 +1921,15 @@ GpuBuffer GpuDeviceDX12::CreateBuffer(GpuBufferDesc const& desc, void* initial_d
 	);
 	ASSERT_HR(created);
 
-	ID3D12GraphicsCommandList* cmdlist = GetCurrentCommandList();
-
 	if (initial_data)
 	{
 		FrameResource* frame = GetFrameResources();
-		ResourceAllocator& allocator = frame->transient_resource_allocator;
+		UploadBufferAllocator& allocator = frame->transient_upload_buffers;
 		
 		u8* copy_src_buffer = allocator.Allocate(initial_data_bytes, alignment);
 		memcpy(copy_src_buffer, initial_data, initial_data_bytes);
 		
-		cmdlist->CopyBufferRegion(
+		cmd_list->CopyBufferRegion(
 			buffer.resource.Get(), 
 			0, 
 			allocator.GetRootBuffer(), 
@@ -1664,7 +2035,7 @@ namespace Gfx
 		g_gpu_device->EndPresent();
 	}
 
-	void TransitionBarrier(ID3D12Resource* resource, ID3D12GraphicsCommandList* cmd_list, ResourceState::Enum state_before, ResourceState::Enum state_after)
+	void TransitionBarrier(ID3D12Resource* resource, Commandlist cmd_list_handle, ResourceState::Enum state_before, ResourceState::Enum state_after)
 	{
 		D3D12_RESOURCE_BARRIER barrier = CD3DX12_RESOURCE_BARRIER::Transition(
 			resource,
@@ -1672,10 +2043,11 @@ namespace Gfx
 			ResourceStateToDX12(state_after)
 		);
 
+		ID3D12GraphicsCommandList* cmd_list = g_gpu_device->HandleToCommandList(cmd_list_handle);
 		cmd_list->ResourceBarrier(1, &barrier);
 	}
 
-	void TransitionBarriers(ID3D12Resource** resources, ID3D12GraphicsCommandList* cmd_list, u8 num_barriers, ResourceState::Enum state_before, ResourceState::Enum state_after)
+	void TransitionBarriers(ID3D12Resource** resources, Commandlist cmd_list_handle, u8 num_barriers, ResourceState::Enum state_before, ResourceState::Enum state_after)
 	{
 		ASSERT(resources);
 
@@ -1692,31 +2064,44 @@ namespace Gfx
 			barriers[i].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
 		}
 
+		ID3D12GraphicsCommandList* cmd_list = g_gpu_device->HandleToCommandList(cmd_list_handle);
 		cmd_list->ResourceBarrier(num_barriers, barriers);
 	}
 
-	void WaitForFenceValue(ID3D12Fence* fence, uint64_t fenceValue, HANDLE fenceEvent, u32 durationMS)
+	void WaitForFenceValueCpuBlocking(u64 fenceValue)
 	{
-		// TODO(pgPW): Add hang detection here. Set timer, wait interval, if not completed, assert.
-
-		if (fence->GetCompletedValue() < fenceValue)
-		{
-			HRESULT hr = fence->SetEventOnCompletion(fenceValue, fenceEvent);
-			ASSERT_HR(hr);
-			WaitForSingleObjectEx(fenceEvent, durationMS, FALSE);
-		}
+		g_gpu_device->WaitForFenceValueCpuBlocking(fenceValue);
 	}
 
-	u64 Signal(ID3D12CommandQueue* commandQueue, ID3D12Fence* fence, u64 fenceValue)
+	Commandlist CreateCommandList(D3D12_COMMAND_LIST_TYPE type, wchar_t* name)
 	{
-		HRESULT hr = commandQueue->Signal(fence, fenceValue);
-		ASSERT_HR(hr);
-
-		return fenceValue + 1;
+		return g_gpu_device->CreateCommandList(type, name);
 	}
 
-	void BindVertexBuffer(ID3D12GraphicsCommandList* command_list, GpuBuffer const * vertex_buffer, u8 slot, u32 offset)
+	void OpenCommandList(Commandlist cmd_list)
 	{
+		g_gpu_device->OpenCommandList(cmd_list);
+	}
+	
+	void EnqueueCommandList(Commandlist cmd_list)
+	{
+		g_gpu_device->CloseAndQueueCommandListForSubmit(cmd_list);
+	}
+
+	u64 SubmitCommandList(Commandlist cmd_list)
+	{
+		return g_gpu_device->CloseAndSubmitCommandList(cmd_list);
+	}
+
+	void FlushQueuedGraphicsWork()
+	{
+		g_gpu_device->FlushQueuedGraphicsWork();
+	}
+
+	void BindVertexBuffer(Commandlist cmd_list_handle, GpuBuffer const * vertex_buffer, u8 slot, u32 offset)
+	{
+		ID3D12GraphicsCommandList* command_list = g_gpu_device->HandleToCommandList(cmd_list_handle);
+
 		D3D12_VERTEX_BUFFER_VIEW buffer_view;
 
 		buffer_view.BufferLocation = vertex_buffer->resource->GetGPUVirtualAddress();
@@ -1728,8 +2113,10 @@ namespace Gfx
 		command_list->IASetVertexBuffers(static_cast<u32>(slot), 1, &buffer_view);
 	}
 
-	void BindVertexBuffers(ID3D12GraphicsCommandList* command_list, GpuBuffer const ** vertex_buffers, u8 slot, u8 count, u32 const* offsets)
+	void BindVertexBuffers(Commandlist cmd_list_handle, GpuBuffer const ** vertex_buffers, u8 slot, u8 count, u32 const* offsets)
 	{
+		ID3D12GraphicsCommandList* command_list = g_gpu_device->HandleToCommandList(cmd_list_handle);
+
 		D3D12_VERTEX_BUFFER_VIEW buffer_views[256];
 
 		for (u32 i = 0; i < count; ++i)
@@ -1751,8 +2138,10 @@ namespace Gfx
 		command_list->IASetVertexBuffers(static_cast<u32>(slot), static_cast<u32>(count), buffer_views);
 	}
 
-	void BindIndexBuffer(ID3D12GraphicsCommandList* command_list, GpuBuffer const* index_buffer, u32 offset)
+	void BindIndexBuffer(Commandlist cmd_list_handle, GpuBuffer const* index_buffer, u32 offset)
 	{
+		ID3D12GraphicsCommandList* command_list = g_gpu_device->HandleToCommandList(cmd_list_handle);
+
 		D3D12_INDEX_BUFFER_VIEW buffer_view;
 		buffer_view.BufferLocation = index_buffer->resource->GetGPUVirtualAddress() + static_cast<D3D12_GPU_VIRTUAL_ADDRESS>(offset);
 		buffer_view.SizeInBytes = index_buffer->desc.sizes_bytes;
@@ -1761,33 +2150,10 @@ namespace Gfx
 		command_list->IASetIndexBuffer(&buffer_view);
 	}
 
-	ComPtr<ID3D12GraphicsCommandList> CreateCommandList(D3D12_COMMAND_LIST_TYPE type, wchar_t* name)
+	GpuBuffer CreateVertexBuffer(Commandlist cmd_list_handle, void* vertex_data, u32 vertex_bytes, u32 vertex_stride_bytes)
 	{
-		return g_gpu_device->CreateCommandList(type, name);
-	}
+		ID3D12GraphicsCommandList* command_list = g_gpu_device->HandleToCommandList(cmd_list_handle);
 
-	void OpenCommandList(ID3D12GraphicsCommandList* cmd_list)
-	{
-		g_gpu_device->OpenCommandList(cmd_list);
-	}
-	
-	void EnqueueCommandList(ID3D12GraphicsCommandList* cmd_list)
-	{
-		g_gpu_device->CloseAndEnqueueCommandList(cmd_list);
-	}
-
-	u64 SubmitCommandList(ID3D12GraphicsCommandList* cmd_list)
-	{
-		return g_gpu_device->CloseAndSubmitCommandList(cmd_list);
-	}
-
-	void FlushQueuedGraphicsWork()
-	{
-		g_gpu_device->FlushQueuedGraphicsWork();
-	}
-
-	GpuBuffer CreateVertexBuffer(GpuDeviceDX12* gpu_device, void* vertex_data, u32 vertex_bytes, u32 vertex_stride_bytes)
-	{
 		GpuBufferDesc desc;
 		MemZeroSafe(desc);
 		desc.usage = BufferUsage::Default;
@@ -1795,19 +2161,21 @@ namespace Gfx
 		desc.bind_flags = BindFlags::VertexBuffer;
 		desc.stride_in_bytes = vertex_stride_bytes;
 
-		GpuBuffer vertex_buffer = gpu_device->CreateBuffer(desc, vertex_data, vertex_bytes);
+		GpuBuffer vertex_buffer = g_gpu_device->CreateBuffer(command_list, desc, vertex_data, vertex_bytes);
 
 		TransitionBarrier(
 			vertex_buffer.resource.Get(),
-			gpu_device->GetCurrentCommandList(),
+			cmd_list_handle,
 			ResourceState::Copy_Dest,
 			ResourceState::Vertex_And_Constant_Buffer);
 
 		return vertex_buffer;
 	}
 
-	GpuBuffer CreateIndexBuffer(GpuDeviceDX12* gpu_device, void* index_data, u32 index_bytes)
+	GpuBuffer CreateIndexBuffer(Commandlist cmd_list_handle, void* index_data, u32 index_bytes)
 	{
+		ID3D12GraphicsCommandList* command_list = g_gpu_device->HandleToCommandList(cmd_list_handle);
+
 		GpuBufferDesc desc;
 		MemZeroSafe(desc);
 		desc.usage = BufferUsage::Default;
@@ -1816,11 +2184,11 @@ namespace Gfx
 		desc.format = DXGI_FORMAT_R16_UINT;
 		desc.stride_in_bytes = sizeof(u16);
 
-		GpuBuffer index_buffer = gpu_device->CreateBuffer(desc, index_data, index_bytes);
+		GpuBuffer index_buffer = g_gpu_device->CreateBuffer(command_list, desc, index_data, index_bytes);
 
 		TransitionBarrier(
 			index_buffer.resource.Get(),
-			gpu_device->GetCurrentCommandList(),
+			cmd_list_handle,
 			ResourceState::Copy_Dest,
 			ResourceState::Index_Buffer // ResourceState::Generic_Read?
 		);
@@ -1828,20 +2196,12 @@ namespace Gfx
 		return index_buffer;
 	}
 
-	Mesh CreateMesh(GpuDeviceDX12* gpu_device, void* vertex_data, u32 vertex_bytes, u32 vertex_stride_bytes, void* index_data, u32 index_bytes)
+	void DrawMesh(Mesh const* mesh, Commandlist cmd_list_handle)
 	{
-		Mesh mesh;
-		mesh.vertex_buffer_gpu = CreateVertexBuffer(gpu_device, vertex_data, vertex_bytes, vertex_stride_bytes);
-		mesh.index_buffer_gpu = CreateIndexBuffer(gpu_device, index_data, index_bytes);
+		BindVertexBuffer(cmd_list_handle, &mesh->vertex_buffer_gpu, 0, 0);
+		BindIndexBuffer(cmd_list_handle, &mesh->index_buffer_gpu, 0);
 
-		return mesh;
-	}
-
-	void DrawMesh(Mesh const* mesh, ID3D12GraphicsCommandList* command_list)
-	{
-		BindVertexBuffer(command_list, &mesh->vertex_buffer_gpu, 0, 0);
-		BindIndexBuffer(command_list, &mesh->index_buffer_gpu, 0);
-
+		ID3D12GraphicsCommandList* command_list = g_gpu_device->HandleToCommandList(cmd_list_handle);
 		for (SubMesh const& submesh : mesh->submeshes)
 		{
 			command_list->DrawIndexedInstanced(submesh.num_indices, 1, submesh.first_index_location, submesh.base_vertex_location, 0);

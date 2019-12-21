@@ -16,8 +16,11 @@ namespace GeoUtils
 
 	struct CubeGeometry
 	{
-		Vertex vertices[24];
-		Index indices[36];
+		static u32 const num_vertices = 24;
+		static u32 const num_indices = 36;
+
+		Vertex vertices[num_vertices];
+		Index indices[num_indices];
 	};
 
 	static void CreateBox(f32 width, f32 height, f32 depth, CubeGeometry* out_geo)
