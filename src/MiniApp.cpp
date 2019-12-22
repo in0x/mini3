@@ -11,6 +11,8 @@ void MiniApp::Init()
 	Gfx::RegisterCommandProducerThread();
 	Gfx::CreateGpuDevice(GetNativeHandle(), Gfx::InitFlags::Enable_Debug_Layer | Gfx::InitFlags::Allow_Tearing);
 
+	Gfx::BeginPresent();
+
 	GeoUtils::CubeGeometry cube;
 	GeoUtils::CreateBox(2.0f, 2.0f, 2.0f, &cube);
 
@@ -31,6 +33,8 @@ void MiniApp::Init()
 	f64 upload_fence = Gfx::SubmitCommandList(m_geo_upload_cmds);
 
 	Gfx::WaitForFenceValueCpuBlocking(upload_fence);
+
+	Gfx::EndPresent();
 }
 
 bool MiniApp::Update()

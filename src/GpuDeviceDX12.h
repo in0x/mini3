@@ -158,8 +158,6 @@ namespace Gfx
 		ComPtr<ID3DBlob> blob;
 	};
 
-
-
 	struct Commandlist
 	{
 		static const s32 INVALID_HANDLE = -1;

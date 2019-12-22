@@ -160,9 +160,11 @@ public:
 	ID3D12GraphicsCommandList** GetListSetByType(D3D12_COMMAND_LIST_TYPE type);
 	ID3D12GraphicsCommandList** GetCommandListSlot(s32 thread_id, D3D12_COMMAND_LIST_TYPE type);
 
-	void OpenCommandList(ID3D12GraphicsCommandList* cmdlist, CommandAllocator* allocator);
+	void OpenCommandList(ID3D12GraphicsCommandList* cmdlist, ID3D12CommandAllocator* cmd_allocator);
 	void CloseCommandList(ID3D12GraphicsCommandList* cmdlist);
-	bool EnsureAllCommandListsClosed();
+	bool AreAllCommandListsClosed();
+	bool IsCommandListOpenOnThisThread(D3D12_COMMAND_LIST_TYPE type);
+	bool IsCommandListOpenOnThisThread(ID3D12GraphicsCommandList* cmdlist);
 
 private:
 	ID3D12GraphicsCommandList* m_active_gfx_lists[NUM_MAX_THREADS];
@@ -170,14 +172,12 @@ private:
 	ID3D12GraphicsCommandList* m_active_compute_lists[NUM_MAX_THREADS];
 };
 
-struct FrameResource
+class FrameResource
 {
+public:
 	u64 end_of_frame_fence;
 
 	Gfx::Commandlist command_list;
-	CommandAllocator cmd_allocator;
-	CommandListManager cmd_list_manager;
-	ComPtr<ID3D12Resource> render_target;
 
 	DescriptorTableFrameAllocator resource_descriptors_gpu;
 	DescriptorTableFrameAllocator sampler_descriptors_gpu;
@@ -187,14 +187,61 @@ struct FrameResource
 	typedef Array<ID3D12GraphicsCommandList*, NUM_MAX_THREADS, AtomicCounterPolicy> WorkQueue;
 	WorkQueue queued_work;
 
+	ID3D12Resource* GetRenderTarget()
+	{
+		return m_render_target.Get();
+	}
+
+	void Create(ID3D12Device* device, u32 frame_index, ComPtr<ID3D12Resource> render_target)
+	{
+		m_cmd_allocator.Create(device);
+
+		wchar_t cmd_list_name[64];
+		swprintf_s(cmd_list_name, L"cmd_list_frame_%u", frame_index);
+		command_list = CreateCommandList(D3D12_COMMAND_LIST_TYPE_DIRECT, cmd_list_name);
+
+		m_render_target = render_target;
+
+		resource_descriptors_gpu.Create(device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 1024);
+		sampler_descriptors_gpu.Create(device, D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER, 16);
+		transient_upload_buffers.Create(device, 1024 * 1024 * 128);
+	}
+
+	void Destroy()
+	{
+		ASSERT(m_cmd_list_manager.AreAllCommandListsClosed());
+		m_cmd_allocator.Destroy();
+	}
+
+	bool AreAllCommandListsClosed()
+	{
+		return m_cmd_list_manager.AreAllCommandListsClosed();
+	}
+
+	void ResetCommandAllocators()
+	{
+		ASSERT(m_cmd_list_manager.AreAllCommandListsClosed());
+		m_cmd_allocator.Reset();
+	}
+
+	void OpenCommandList(ID3D12GraphicsCommandList* cmd_list)
+	{
+		D3D12_COMMAND_LIST_TYPE type = cmd_list->GetType();
+		ASSERT(!m_cmd_list_manager.IsCommandListOpenOnThisThread(type));
+
+		ID3D12CommandAllocator* allocator = GetCmdAllocatorForThread(type);
+
+		m_cmd_list_manager.OpenCommandList(cmd_list, allocator);
+	}
+
 	void CloseCommandList(ID3D12GraphicsCommandList* cmd_list)
 	{
-		cmd_list_manager.CloseCommandList(cmd_list);
+		m_cmd_list_manager.CloseCommandList(cmd_list);
 	}
 
 	void CloseAndQueueCommandList(ID3D12GraphicsCommandList* cmd_list)
 	{
-		cmd_list_manager.CloseCommandList(cmd_list);
+		m_cmd_list_manager.CloseCommandList(cmd_list);
 
 		ScopedLock lock(submit_lock);
 		queued_work.PushBack(cmd_list);
@@ -207,22 +254,19 @@ struct FrameResource
 		queued_work.Clear();
 	}
 
-	inline ID3D12CommandAllocator* GetGfxCmdAllocator()
+	inline ID3D12CommandAllocator* GetCmdAllocatorForThread(D3D12_COMMAND_LIST_TYPE type)
 	{
-		return cmd_allocator.GetAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT);
-	}
-
-	inline ID3D12CommandAllocator* GetComputeCmdAllocator()
-	{
-		return cmd_allocator.GetAllocator(D3D12_COMMAND_LIST_TYPE_COMPUTE);
-	}
-
-	inline ID3D12CommandAllocator* GetCopyCmdAllocator()
-	{
-		return cmd_allocator.GetAllocator(D3D12_COMMAND_LIST_TYPE_COPY);
+		// Ensure no CommandList of this type is already open, as it would be using this
+		// allocator. Might be a bit restrictive, tbd.
+		ASSERT(!m_cmd_list_manager.IsCommandListOpenOnThisThread(type));
+		return m_cmd_allocator.GetAllocator(type);
 	}
 
 private:
+	ComPtr<ID3D12Resource> m_render_target;
+	CommandAllocator m_cmd_allocator;
+	CommandListManager m_cmd_list_manager;
+
 	std::mutex submit_lock;
 };
 
@@ -278,8 +322,6 @@ private:
 	inline D3D12_RECT                 GetScissorRect() const { return m_scissor_rect; }
 	inline u32	                      GetCurrentFrameIndex() const { return m_frame_index; }
 
-	inline ID3D12Resource*			  GetCurrentRenderTarget() const { return m_frame_resource[m_frame_index].render_target.Get(); }
-
 	u32									m_frame_index;
 	u32									m_init_flags;
 	u32									m_backbuffer_width;
@@ -332,8 +374,9 @@ private:
 
 	enum { MAX_CMD_LISTS = 30 };
 	Array<ID3D12GraphicsCommandList*, MAX_CMD_LISTS, AtomicCounterPolicy> m_external_cmd_lists;
+	CommandAllocator m_cmdlist_creation_allocator;
 
-	ComPtr<ID3D12GraphicsCommandList> CreateCommandListInternal(D3D12_COMMAND_LIST_TYPE type, wchar_t* name);
+	//ComPtr<ID3D12GraphicsCommandList> CreateCommandListInternal(D3D12_COMMAND_LIST_TYPE type, wchar_t* name);
 
 	//ResourceAllocator m_buffer_upload_allocator;
 	//ResourceAllocator m_texture_upload_allocator;
@@ -674,7 +717,7 @@ ID3D12GraphicsCommandList** CommandListManager::GetListSetByType(D3D12_COMMAND_L
 	switch (type)
 	{
 	case D3D12_COMMAND_LIST_TYPE_DIRECT:
-		return m_active_copy_lists;
+		return m_active_gfx_lists;
 	case D3D12_COMMAND_LIST_TYPE_COMPUTE:
 		return m_active_compute_lists;
 	case D3D12_COMMAND_LIST_TYPE_COPY:
@@ -691,15 +734,13 @@ ID3D12GraphicsCommandList** CommandListManager::GetCommandListSlot(s32 thread_id
 	return &list_set[thread_id];
 }
 
-void CommandListManager::OpenCommandList(ID3D12GraphicsCommandList* cmdlist, CommandAllocator* allocator)
+void CommandListManager::OpenCommandList(ID3D12GraphicsCommandList* cmdlist, ID3D12CommandAllocator* cmd_allocator)
 {
 	s32 thread_id = GetCmdProducerThreadId();
 	D3D12_COMMAND_LIST_TYPE list_type = cmdlist->GetType();
 
 	ID3D12GraphicsCommandList** list_slot = GetCommandListSlot(thread_id, list_type);
-	ASSERT_F(*list_slot == nullptr, "Another command list is already open on this thread!");
-
-	ID3D12CommandAllocator* cmd_allocator = allocator->GetAllocator(list_type);
+	ASSERT_F(!IsCommandListOpenOnThisThread(list_type), "Another command list is already open on this thread!");
 
 	VERIFY_HR(cmdlist->Reset(cmd_allocator, nullptr));
 	*list_slot = cmdlist;
@@ -710,14 +751,14 @@ void CommandListManager::CloseCommandList(ID3D12GraphicsCommandList* cmdlist)
 	s32 thread_id = GetCmdProducerThreadId();
 	D3D12_COMMAND_LIST_TYPE list_type = cmdlist->GetType();
 
-	ID3D12GraphicsCommandList** list_slot = GetCommandListSlot(thread_id, list_type);
-	ASSERT_F(*list_slot == cmdlist, "Attempting to close a command list that is not open on this thread!");
-
+	ASSERT_F(IsCommandListOpenOnThisThread(cmdlist), "Attempting to close a command list that is not open on this thread!");
 	VERIFY_HR(cmdlist->Close());
+
+	ID3D12GraphicsCommandList** list_slot = GetCommandListSlot(thread_id, list_type);
 	*list_slot = nullptr;
 }
 
-bool CommandListManager::EnsureAllCommandListsClosed()
+bool CommandListManager::AreAllCommandListsClosed()
 {
 	for (u32 i = 0; i < NUM_MAX_THREADS; ++i)
 	{
@@ -729,6 +770,21 @@ bool CommandListManager::EnsureAllCommandListsClosed()
 	return true;
 }
 
+bool CommandListManager::IsCommandListOpenOnThisThread(D3D12_COMMAND_LIST_TYPE type)
+{
+	s32 thread_id = GetCmdProducerThreadId();
+	ID3D12GraphicsCommandList** list_slot = GetCommandListSlot(thread_id, type);
+	
+	return (*list_slot != nullptr);
+}
+
+bool CommandListManager::IsCommandListOpenOnThisThread(ID3D12GraphicsCommandList* cmdlist)
+{
+	s32 thread_id = GetCmdProducerThreadId();
+	ID3D12GraphicsCommandList** list_slot = GetCommandListSlot(thread_id, cmdlist->GetType());
+
+	return (*list_slot == cmdlist);
+}
 
 CommandQueue::CommandQueue()
 	: m_cmd_queue(nullptr)
@@ -907,9 +963,7 @@ void GpuDeviceDX12::BeginPresent()
 {
 	FrameResource* frame = GetFrameResources();
 
-	// Ensure we don't have any open commandlists so we can safely reset the allocators.
-	ASSERT(frame->cmd_list_manager.EnsureAllCommandListsClosed());
-	frame->cmd_allocator.Reset();
+	frame->ResetCommandAllocators();
 
 	ID3D12GraphicsCommandList* cmdlist = HandleToCommandList(frame->command_list);
 	OpenCommandList(frame->command_list);
@@ -937,7 +991,7 @@ void GpuDeviceDX12::BeginPresent()
 	frame->transient_upload_buffers.Clear();
 
 	// Transition the render target into the correct state to allow for drawing into it.
-	Gfx::TransitionBarrier(GetCurrentRenderTarget(), frame->command_list, ResourceState::Present, ResourceState::Render_Target);
+	Gfx::TransitionBarrier(frame->GetRenderTarget(), frame->command_list, ResourceState::Present, ResourceState::Render_Target);
 
 	// Set the viewport and scissor rect.
 	{
@@ -972,7 +1026,7 @@ void GpuDeviceDX12::EndPresent()
 	frame->sampler_descriptors_gpu.Update(device, cmdlist);
 
 	// Transition the render target to the state that allows it to be presented to the display.
-	Gfx::TransitionBarrier(GetCurrentRenderTarget(), frame->command_list, ResourceState::Render_Target, ResourceState::Present);
+	Gfx::TransitionBarrier(frame->GetRenderTarget(), frame->command_list, ResourceState::Render_Target, ResourceState::Present);
 
 	// Send the command list off to the GPU for processing.
 	CloseAndQueueCommandListForSubmit(frame->command_list);
@@ -1157,6 +1211,8 @@ void GpuDeviceDX12::Init(void* windowHandle, u32 initFlags)
 	createDevice(bEnableDebugLayer);
 	checkFeatureLevel();
 	m_cmd_queue_mng.Create(GetD3DDevice());
+
+	m_cmdlist_creation_allocator.Create(GetD3DDevice());
 
 	m_backbuffer_width = max(static_cast<u32>(m_output_size.right - m_output_size.left), 1u);
 	m_backbuffer_height = max(static_cast<u32>(m_output_size.bottom - m_output_size.top), 1u);
@@ -1501,10 +1557,10 @@ void GpuDeviceDX12::updateSwapchain(u32 width, u32 height)
 	ASSERT(m_window);
 
 	// Release resources that are tied to the swap chain and update fence values.
-	for (u32 n = 0; n < MAX_FRAME_COUNT; n++)
+	/*for (u32 n = 0; n < MAX_FRAME_COUNT; n++)
 	{
 		m_frame_resource[n].render_target.Reset();
-	}
+	}*/
 
 	const DXGI_FORMAT backBufferFormat = formatSrgbToLinear(m_backbuffer_format);
 
@@ -1761,33 +1817,25 @@ static ComPtr<ID3D12CommandAllocator> CreateCommandAllocator(ID3D12Device* devic
 	return cmd_allocator;
 }
 
-ComPtr<ID3D12GraphicsCommandList> GpuDeviceDX12::CreateCommandListInternal(D3D12_COMMAND_LIST_TYPE type, wchar_t* name)
+Gfx::Commandlist GpuDeviceDX12::CreateCommandList(D3D12_COMMAND_LIST_TYPE type, wchar_t* name)
 {
-	ComPtr<ID3D12GraphicsCommandList> cmd_list = nullptr;
+	ID3D12GraphicsCommandList* cmd_list = nullptr;
 
 	HRESULT cmdListCreated = m_d3d_device->CreateCommandList(
 		0,
 		type,
-		GetFrameResources()->cmd_allocator.GetAllocator(type),
+		m_cmdlist_creation_allocator.GetAllocator(type),
 		nullptr,
-		IID_PPV_ARGS(cmd_list.GetAddressOf()));
+		IID_PPV_ARGS(&cmd_list));
 
 	ASSERT_HR(cmdListCreated);
-
-	HRESULT closed = cmd_list->Close();
-	ASSERT_HR(closed);
+	VERIFY_HR(cmd_list->Close());
 
 	if (name)
 	{
 		cmd_list->SetName(name);
 	}
 
-	return cmd_list;
-}
-
-Gfx::Commandlist GpuDeviceDX12::CreateCommandList(D3D12_COMMAND_LIST_TYPE type, wchar_t* name)
-{
-	ID3D12GraphicsCommandList* cmd_list = CreateCommandListInternal(type, name).Detach();
 	ID3D12GraphicsCommandList** next_slot = m_external_cmd_lists.PushBack();
 	*next_slot = cmd_list;
 
@@ -1803,11 +1851,8 @@ ID3D12GraphicsCommandList* GpuDeviceDX12::HandleToCommandList(Gfx::Commandlist h
 void GpuDeviceDX12::OpenCommandList(Gfx::Commandlist handle)
 {
 	ID3D12GraphicsCommandList* cmd_list = HandleToCommandList(handle);
-
 	FrameResource* frame_resource = GetFrameResources();
-	CommandAllocator* cmd_allocator = &frame_resource->cmd_allocator;
-
-	frame_resource->cmd_list_manager.OpenCommandList(cmd_list, cmd_allocator);
+	frame_resource->OpenCommandList(cmd_list);
 }
 
 void GpuDeviceDX12::CloseAndQueueCommandListForSubmit(Gfx::Commandlist handle)
@@ -1862,19 +1907,9 @@ void GpuDeviceDX12::createFrameResources()
 {
 	ID3D12Device* device = GetD3DDevice();
 
-	wchar_t cmd_list_name[64];
-
 	for (u32 i = 0; i < MAX_FRAME_COUNT; ++i)
 	{
-		swprintf_s(cmd_list_name, L"cmd_list_frame_%u", i);
-
-		m_frame_resource[i].cmd_allocator.Create(device);
-		m_frame_resource[i].command_list = CreateCommandList(D3D12_COMMAND_LIST_TYPE_DIRECT, cmd_list_name);
-		m_frame_resource[i].render_target = CreateRenderTarget(device, m_rtv_descriptor_heap.Get(), GetSwapChain(), m_backbuffer_format, m_rtv_descriptor_size, i);
-
-		m_frame_resource[i].resource_descriptors_gpu.Create(device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 1024);
-		m_frame_resource[i].sampler_descriptors_gpu.Create(device, D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER, 16);
-		m_frame_resource[i].transient_upload_buffers.Create(device, 1024 * 1024 * 128);
+		m_frame_resource[i].Create(device, i, CreateRenderTarget(device, m_rtv_descriptor_heap.Get(), GetSwapChain(), m_backbuffer_format, m_rtv_descriptor_size, i));
 	}
 }
 
@@ -1882,7 +1917,7 @@ void GpuDeviceDX12::destroyFrameResource()
 {
 	for (u32 i = 0; i < MAX_FRAME_COUNT; ++i)
 	{
-		m_frame_resource[i].cmd_allocator.Destroy();
+		m_frame_resource[i].Destroy();
 	}
 }
 
