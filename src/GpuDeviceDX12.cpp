@@ -10,6 +10,42 @@ static constexpr size_t GPU_RESOURCE_HEAP_CBV_SRV_UAV_COUNT = GPU_RESOURCE_HEAP_
 
 using namespace Gfx;
 
+static D3D12_RESOURCE_STATES ResourceStateToDX12(ResourceState::Enum state)
+{
+	return static_cast<D3D12_RESOURCE_STATES>(state);
+}
+
+void TransitionBarrier(ID3D12Resource* resource, ID3D12GraphicsCommandList* cmd_list, ResourceState::Enum state_before, ResourceState::Enum state_after)
+{
+	D3D12_RESOURCE_BARRIER barrier = CD3DX12_RESOURCE_BARRIER::Transition(
+		resource,
+		ResourceStateToDX12(state_before),
+		ResourceStateToDX12(state_after)
+	);
+
+	cmd_list->ResourceBarrier(1, &barrier);
+}
+
+void TransitionBarriers(ID3D12Resource** resources, ID3D12GraphicsCommandList* cmd_list, u8 num_barriers, ResourceState::Enum state_before, ResourceState::Enum state_after)
+{
+	ASSERT(resources);
+
+	D3D12_RESOURCE_BARRIER barriers[256];
+	for (u8 i = 0; i < num_barriers; ++i)
+	{
+		ASSERT(resources[i]);
+
+		barriers[i].Transition.pResource = resources[i];
+		barriers[i].Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
+		barriers[i].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+		barriers[i].Transition.StateAfter = ResourceStateToDX12(state_after);
+		barriers[i].Transition.StateBefore = ResourceStateToDX12(state_before);
+		barriers[i].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+	}
+
+	cmd_list->ResourceBarrier(num_barriers, barriers);
+}
+
 class CommandQueue
 {
 public:
@@ -172,20 +208,71 @@ private:
 	ID3D12GraphicsCommandList* m_active_compute_lists[NUM_MAX_THREADS];
 };
 
+// TODO: Expose this so we can use it for other "context-like" situations.
+class FullFrameCommandList
+{
+public:
+	void Create(ID3D12Device* device, D3D12_COMMAND_LIST_TYPE type, wchar_t const* name)
+	{
+		HRESULT hr = device->CreateCommandAllocator(type, IID_PPV_ARGS(&m_allocator));
+		ASSERT_HR(hr);
+
+		if (name) // TODO: wchar version of miniprintf
+		{
+			wchar_t full_name[128];
+			swprintf_s(full_name, L"%s_alloc", name);
+			m_allocator->SetName(name);
+		}
+
+		hr = device->CreateCommandList(
+			0,
+			type,
+			m_allocator.Get(),
+			nullptr,
+			IID_PPV_ARGS(&m_commandlist));
+
+		ASSERT_HR(hr);
+		VERIFY_HR(m_commandlist->Close());
+
+		if (name)
+		{
+			wchar_t full_name[128];
+			swprintf_s(full_name, L"%s_list", name);
+			m_commandlist->SetName(name);
+		}
+	}
+
+	void Open()
+	{
+		VERIFY_HR(m_commandlist->Reset(m_allocator.Get(), nullptr));
+	}
+
+	void Close()
+	{
+		VERIFY_HR(m_commandlist->Close());
+	}
+
+	ID3D12GraphicsCommandList* GetCommandlist()
+	{
+		return m_commandlist.Get();
+	}
+
+private:
+	ComPtr<ID3D12GraphicsCommandList> m_commandlist;
+	ComPtr<ID3D12CommandAllocator> m_allocator;
+};
+
 class FrameResource
 {
 public:
 	u64 end_of_frame_fence;
-
-	Gfx::Commandlist command_list;
 
 	DescriptorTableFrameAllocator resource_descriptors_gpu;
 	DescriptorTableFrameAllocator sampler_descriptors_gpu;
 
 	UploadBufferAllocator transient_upload_buffers;
 
-	typedef Array<ID3D12GraphicsCommandList*, NUM_MAX_THREADS, AtomicCounterPolicy> WorkQueue;
-	WorkQueue queued_work;
+	FullFrameCommandList present_cmdlist;
 
 	ID3D12Resource* GetRenderTarget()
 	{
@@ -199,6 +286,8 @@ public:
 		wchar_t cmd_list_name[64];
 		swprintf_s(cmd_list_name, L"cmd_list_frame_%u", frame_index);
 		command_list = CreateCommandList(D3D12_COMMAND_LIST_TYPE_DIRECT, cmd_list_name);
+
+		present_cmdlist.Create(device, D3D12_COMMAND_LIST_TYPE_DIRECT, L"present_cmds");
 
 		m_render_target = render_target;
 
@@ -224,6 +313,11 @@ public:
 		m_cmd_allocator.Reset();
 	}
 
+	FullFrameCommandList* GetPresentCommandlist()
+	{
+		return &present_cmdlist;
+	}
+
 	void OpenCommandList(ID3D12GraphicsCommandList* cmd_list)
 	{
 		D3D12_COMMAND_LIST_TYPE type = cmd_list->GetType();
@@ -239,21 +333,6 @@ public:
 		m_cmd_list_manager.CloseCommandList(cmd_list);
 	}
 
-	void CloseAndQueueCommandList(ID3D12GraphicsCommandList* cmd_list)
-	{
-		m_cmd_list_manager.CloseCommandList(cmd_list);
-
-		ScopedLock lock(submit_lock);
-		queued_work.PushBack(cmd_list);
-	}
-
-	void PumpQueuedWork(WorkQueue* out_queue)
-	{
-		ScopedLock lock(submit_lock);
-		*out_queue = queued_work;
-		queued_work.Clear();
-	}
-
 	inline ID3D12CommandAllocator* GetCmdAllocatorForThread(D3D12_COMMAND_LIST_TYPE type)
 	{
 		// Ensure no CommandList of this type is already open, as it would be using this
@@ -262,14 +341,16 @@ public:
 		return m_cmd_allocator.GetAllocator(type);
 	}
 
+	//inline Gfx::Commandlist GetCommandlist() { return command_list; }
+
 private:
 	ComPtr<ID3D12Resource> m_render_target;
 	CommandAllocator m_cmd_allocator;
 	CommandListManager m_cmd_list_manager;
+	Gfx::Commandlist command_list;
 
 	std::mutex submit_lock;
 };
-
 
 class GpuDeviceDX12
 {
@@ -280,21 +361,22 @@ public:
 
 	void BeginPresent();
 	void EndPresent();
-	void MoveToNextFrame();
 	void Flush();
 
 	Gfx::GpuBuffer CreateBuffer(ID3D12GraphicsCommandList* cmd_list, Gfx::GpuBufferDesc const& desc, void* initial_data, u32 initial_data_bytes);
 
 	inline ID3D12Device* GetD3DDevice() const { return m_d3d_device.Get(); }
-	inline Gfx::Commandlist GetCurrentCommandList() { return m_frame_resource[m_frame_index].command_list; }
-	ID3D12GraphicsCommandList* HandleToCommandList(Gfx::Commandlist handle);
+	
+	__forceinline ID3D12GraphicsCommandList* HandleToCommandList(Gfx::Commandlist handle)
+	{
+		ASSERT(handle.IsValid());
+		return m_external_cmd_lists[handle.handle];
+	}
 
 	Gfx::Commandlist CreateCommandList(D3D12_COMMAND_LIST_TYPE type, wchar_t* name = nullptr);
 
 	void OpenCommandList(Gfx::Commandlist handle);
-	void CloseAndQueueCommandListForSubmit(Gfx::Commandlist handle);
 	u64 CloseAndSubmitCommandList(Gfx::Commandlist handle);
-	u64 FlushQueuedGraphicsWork();
 	void WaitForFenceValueCpuBlocking(u64 fenceValue);
 
 private:
@@ -313,6 +395,8 @@ private:
 	void updateColorSpace();
 	void createDepthBuffer(u32 width, u32 height);
 	void UpdateViewportScissorRect(u32 width, u32 height);
+
+	void MoveToNextFrame();
 
 	CD3DX12_CPU_DESCRIPTOR_HANDLE GetRenderTargetView() const;
 	CD3DX12_CPU_DESCRIPTOR_HANDLE GetDepthStencilView() const;
@@ -962,11 +1046,12 @@ void CommandQueueManager::WaitForAllQueuesFinished()
 void GpuDeviceDX12::BeginPresent()
 {
 	FrameResource* frame = GetFrameResources();
-
 	frame->ResetCommandAllocators();
 
-	ID3D12GraphicsCommandList* cmdlist = HandleToCommandList(frame->command_list);
-	OpenCommandList(frame->command_list);
+	FullFrameCommandList* present_cmds = frame->GetPresentCommandlist();
+	present_cmds->Open();
+
+	ID3D12GraphicsCommandList* cmdlist = present_cmds->GetCommandlist();
 
 	ID3D12DescriptorHeap* heaps[] = 
 	{
@@ -991,7 +1076,7 @@ void GpuDeviceDX12::BeginPresent()
 	frame->transient_upload_buffers.Clear();
 
 	// Transition the render target into the correct state to allow for drawing into it.
-	Gfx::TransitionBarrier(frame->GetRenderTarget(), frame->command_list, ResourceState::Present, ResourceState::Render_Target);
+	TransitionBarrier(frame->GetRenderTarget(), cmdlist, ResourceState::Present, ResourceState::Render_Target);
 
 	// Set the viewport and scissor rect.
 	{
@@ -1020,17 +1105,18 @@ void GpuDeviceDX12::EndPresent()
 	ID3D12Device* device = GetD3DDevice();
 
 	FrameResource* frame = GetFrameResources();
-	ID3D12GraphicsCommandList* cmdlist = HandleToCommandList(frame->command_list);
+	FullFrameCommandList* present_cmds = frame->GetPresentCommandlist();
+	ID3D12GraphicsCommandList* cmdlist = present_cmds->GetCommandlist();
 
 	frame->resource_descriptors_gpu.Update(device, cmdlist);
 	frame->sampler_descriptors_gpu.Update(device, cmdlist);
 
 	// Transition the render target to the state that allows it to be presented to the display.
-	Gfx::TransitionBarrier(frame->GetRenderTarget(), frame->command_list, ResourceState::Render_Target, ResourceState::Present);
+	TransitionBarrier(frame->GetRenderTarget(), cmdlist, ResourceState::Render_Target, ResourceState::Present);
 
 	// Send the command list off to the GPU for processing.
-	CloseAndQueueCommandListForSubmit(frame->command_list);
-	frame->end_of_frame_fence = FlushQueuedGraphicsWork();
+	present_cmds->Close();
+	frame->end_of_frame_fence = m_cmd_queue_mng.ExecuteCommandList(cmdlist);
 
 	HRESULT hr = S_OK;
 	if (IsTearingAllowed())
@@ -1064,9 +1150,6 @@ void GpuDeviceDX12::EndPresent()
 
 void GpuDeviceDX12::Flush()
 {
-	// Flush all outstanding work.
-	FlushQueuedGraphicsWork();
-
 	// Wait for all queues to become idle.
 	m_cmd_queue_mng.WaitForAllQueuesFinished();
 }
@@ -1084,11 +1167,6 @@ void GpuDeviceDX12::MoveToNextFrame()
 		HRESULT hr = CreateDXGIFactory2(m_dxgi_factory_flags, IID_PPV_ARGS(m_dxgi_factory.ReleaseAndGetAddressOf()));
 		ASSERT_HR(hr);
 	}
-}
-
-static D3D12_RESOURCE_STATES ResourceStateToDX12(ResourceState::Enum state)
-{
-	return static_cast<D3D12_RESOURCE_STATES>(state);
 }
 
 CD3DX12_CPU_DESCRIPTOR_HANDLE GpuDeviceDX12::GetRenderTargetView() const
@@ -1842,23 +1920,11 @@ Gfx::Commandlist GpuDeviceDX12::CreateCommandList(D3D12_COMMAND_LIST_TYPE type, 
 	return Gfx::Commandlist{ (s32)m_external_cmd_lists.IndexOf(next_slot) };
 }
 
-ID3D12GraphicsCommandList* GpuDeviceDX12::HandleToCommandList(Gfx::Commandlist handle)
-{
-	ASSERT(handle.IsValid());
-	return m_external_cmd_lists[handle.handle];
-}
-
 void GpuDeviceDX12::OpenCommandList(Gfx::Commandlist handle)
 {
 	ID3D12GraphicsCommandList* cmd_list = HandleToCommandList(handle);
 	FrameResource* frame_resource = GetFrameResources();
 	frame_resource->OpenCommandList(cmd_list);
-}
-
-void GpuDeviceDX12::CloseAndQueueCommandListForSubmit(Gfx::Commandlist handle)
-{
-	ID3D12GraphicsCommandList* cmd_list = HandleToCommandList(handle);
-	GetFrameResources()->CloseAndQueueCommandList(cmd_list);
 }
 
 u64 GpuDeviceDX12::CloseAndSubmitCommandList(Gfx::Commandlist handle)
@@ -1869,14 +1935,11 @@ u64 GpuDeviceDX12::CloseAndSubmitCommandList(Gfx::Commandlist handle)
 	return m_cmd_queue_mng.ExecuteCommandList(cmd_list);
 }
 
-u64 GpuDeviceDX12::FlushQueuedGraphicsWork()
-{
-	FrameResource::WorkQueue work;
-	GetFrameResources()->PumpQueuedWork(&work);
-
-	CommandQueue* gfx_queue = m_cmd_queue_mng.GetGraphicsQueue();
-	return gfx_queue->ExecuteCommandLists((ID3D12CommandList**)work.Data(), work.Size());
-}
+//u64 GpuDeviceDX12::SubmitCommandLists()
+//{
+//	CommandQueue* gfx_queue = m_cmd_queue_mng.GetGraphicsQueue();
+//	return gfx_queue->ExecuteCommandLists((ID3D12CommandList**)work.Data(), work.Size());
+//}
 
 void GpuDeviceDX12::WaitForFenceValueCpuBlocking(u64 fenceValue)
 {
@@ -2041,6 +2104,7 @@ GpuBuffer GpuDeviceDX12::CreateBuffer(ID3D12GraphicsCommandList* cmd_list, GpuBu
 
 	return buffer;
 }
+
 namespace Gfx
 {
 	static GpuDeviceDX12* g_gpu_device = nullptr;
@@ -2072,35 +2136,14 @@ namespace Gfx
 
 	void TransitionBarrier(ID3D12Resource* resource, Commandlist cmd_list_handle, ResourceState::Enum state_before, ResourceState::Enum state_after)
 	{
-		D3D12_RESOURCE_BARRIER barrier = CD3DX12_RESOURCE_BARRIER::Transition(
-			resource,
-			ResourceStateToDX12(state_before),
-			ResourceStateToDX12(state_after)
-		);
-
 		ID3D12GraphicsCommandList* cmd_list = g_gpu_device->HandleToCommandList(cmd_list_handle);
-		cmd_list->ResourceBarrier(1, &barrier);
+		TransitionBarrier(resource, cmd_list, state_before, state_after);
 	}
-
+	
 	void TransitionBarriers(ID3D12Resource** resources, Commandlist cmd_list_handle, u8 num_barriers, ResourceState::Enum state_before, ResourceState::Enum state_after)
 	{
-		ASSERT(resources);
-
-		D3D12_RESOURCE_BARRIER barriers[256];
-		for (u8 i = 0; i < num_barriers; ++i)
-		{
-			ASSERT(resources[i]);
-
-			barriers[i].Transition.pResource = resources[i];
-			barriers[i].Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
-			barriers[i].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-			barriers[i].Transition.StateAfter = ResourceStateToDX12(state_after);
-			barriers[i].Transition.StateBefore = ResourceStateToDX12(state_before);
-			barriers[i].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-		}
-
 		ID3D12GraphicsCommandList* cmd_list = g_gpu_device->HandleToCommandList(cmd_list_handle);
-		cmd_list->ResourceBarrier(num_barriers, barriers);
+		TransitionBarriers(resources, cmd_list, num_barriers, state_before, state_after);
 	}
 
 	void WaitForFenceValueCpuBlocking(u64 fenceValue)
@@ -2117,20 +2160,10 @@ namespace Gfx
 	{
 		g_gpu_device->OpenCommandList(cmd_list);
 	}
-	
-	void EnqueueCommandList(Commandlist cmd_list)
-	{
-		g_gpu_device->CloseAndQueueCommandListForSubmit(cmd_list);
-	}
 
 	u64 SubmitCommandList(Commandlist cmd_list)
 	{
 		return g_gpu_device->CloseAndSubmitCommandList(cmd_list);
-	}
-
-	void FlushQueuedGraphicsWork()
-	{
-		g_gpu_device->FlushQueuedGraphicsWork();
 	}
 
 	void BindVertexBuffer(Commandlist cmd_list_handle, GpuBuffer const * vertex_buffer, u8 slot, u32 offset)

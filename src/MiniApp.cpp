@@ -10,13 +10,10 @@ void MiniApp::Init()
 
 	Gfx::RegisterCommandProducerThread();
 	Gfx::CreateGpuDevice(GetNativeHandle(), Gfx::InitFlags::Enable_Debug_Layer | Gfx::InitFlags::Allow_Tearing);
-
-	Gfx::BeginPresent();
-
+	
 	GeoUtils::CubeGeometry cube;
 	GeoUtils::CreateBox(2.0f, 2.0f, 2.0f, &cube);
 
-	// TOOD: test the copy queue with this.
 	m_geo_upload_cmds = Gfx::CreateCommandList(D3D12_COMMAND_LIST_TYPE_DIRECT, L"geo_upload_cmds");
 	Gfx::OpenCommandList(m_geo_upload_cmds);
 
@@ -30,11 +27,9 @@ void MiniApp::Init()
 	submesh->base_vertex_location = 0;
 	submesh->first_index_location = 0;
 
-	f64 upload_fence = Gfx::SubmitCommandList(m_geo_upload_cmds);
+	u64 upload_fence = Gfx::SubmitCommandList(m_geo_upload_cmds);
 
 	Gfx::WaitForFenceValueCpuBlocking(upload_fence);
-
-	Gfx::EndPresent();
 }
 
 bool MiniApp::Update()

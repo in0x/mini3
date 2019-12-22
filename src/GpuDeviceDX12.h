@@ -216,15 +216,12 @@ namespace Gfx
 	// Acquires a CommandAllocator and resets the CommandList to ready it for recording.
 	void OpenCommandList(Commandlist cmd_list);
 
-	// Closes the CommandList, free's up its allocator and pushes it into the submit queue, which will push the work
-	// into the graphics queue on the next submit.
-	void EnqueueCommandList(Commandlist cmd_list);
-	
 	// Closes the CommandList, free's up its allocator and pushes it directly into the graphics queue.
 	u64 SubmitCommandList(Commandlist cmd_list);
 
-	// Flushes the enqueued command lists out to the graphics queue.
-	void FlushQueuedGraphicsWork();
+	// TODO: This api is a much better alternative to internal queuing and flushing. Anything else is unsafe other than putting it in the
+	// users hands or duplicating cmdlists and not allowing them to be reused throughout the frame.
+	u64 SubmitCommandLists(Commandlist* cmd_list, u32 count);
 
 	void WaitForFenceValueCpuBlocking(u64 fenceValue);
 	void TransitionBarrier(ID3D12Resource* resources, Commandlist cmd_list, ResourceState::Enum stateBefore, ResourceState::Enum stateAfter);

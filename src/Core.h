@@ -101,17 +101,17 @@ void DebugPrintf(char const* file, int line, char const* fmt, Log::Category cate
 #endif
 
 #ifdef _DEBUG
-	#define VERIFY(x)		\
-	{						\
-		bool result = (x);	\
-		ASSERT(result);		\
+	#define VERIFY(x)				\
+	{								\
+		bool verify_res_res = (x);	\
+		ASSERT(verify_res_res);		\
 	}
 
-	#define VERIFY_HR(x)	\
-	{						\
-		HRESULT hr = (x);	\
-		ASSERT_HR(hr);		\
-	} 
+	#define VERIFY_HR(x)			\
+	{								\
+		HRESULT verify_hr_hr = (x);	\
+		ASSERT_HR(verify_hr_hr);	\
+	}
 #else
 	#define VERIFY(x) x		
 	#define VERIFY_HR(x) x
