@@ -14,21 +14,29 @@ void MiniApp::Init()
 	GeoUtils::CubeGeometry cube;
 	GeoUtils::CreateBox(2.0f, 2.0f, 2.0f, &cube);
 
-	m_geo_upload_cmds = Gfx::CreateCommandList(D3D12_COMMAND_LIST_TYPE_DIRECT, L"geo_upload_cmds");
-	Gfx::OpenCommandList(m_geo_upload_cmds);
+	m_upload_cmds = Gfx::CreateCommandList(D3D12_COMMAND_LIST_TYPE_DIRECT, L"geo_upload_cmds");
+	Gfx::OpenCommandList(m_upload_cmds);
 
 	Gfx::Mesh mesh;
 	u32 const vertex_size = sizeof(GeoUtils::Vertex);
-	mesh.vertex_buffer_gpu = Gfx::CreateVertexBuffer(m_geo_upload_cmds, cube.vertices, vertex_size * GeoUtils::CubeGeometry::num_vertices, vertex_size);
-	mesh.index_buffer_gpu = Gfx::CreateIndexBuffer(m_geo_upload_cmds, cube.indices, sizeof(GeoUtils::Index));
+	mesh.vertex_buffer_gpu = Gfx::CreateVertexBuffer(m_upload_cmds, cube.vertices, vertex_size * GeoUtils::CubeGeometry::num_vertices, vertex_size);
+	mesh.index_buffer_gpu = Gfx::CreateIndexBuffer(m_upload_cmds, cube.indices, sizeof(GeoUtils::Index));
 
 	Gfx::SubMesh* submesh = mesh.submeshes.PushBack();
 	submesh->num_indices = cube.num_indices;
 	submesh->base_vertex_location = 0;
 	submesh->first_index_location = 0;
 
-	u64 upload_fence = Gfx::SubmitCommandList(m_geo_upload_cmds);
+	Gfx::GpuBufferDesc cam_desc;
+	cam_desc.bind_flags = Gfx::BindFlags::ConstantBuffer;
+	cam_desc.usage = Gfx::BufferUsage::Default;
+	cam_desc.cpu_access_flags = 0;
+	cam_desc.sizes_bytes = sizeof(m_camera_constants);
 
+	MemZeroUnsafe(m_camera_constants);
+	m_camera_constants = Gfx::CreateBuffer(m_upload_cmds, cam_desc, L"CameraConstants", &m_camera_constants);
+
+	u64 upload_fence = Gfx::SubmitCommandList(m_upload_cmds);
 	Gfx::WaitForFenceValueCpuBlocking(upload_fence);
 }
 

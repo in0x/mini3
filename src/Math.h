@@ -7,31 +7,10 @@
 //  Math Types
 // ====================================
 
-struct float2
-{
-	f32 x;
-	f32 y;
-};
-
-struct float3
-{
-	f32 x;
-	f32 y;
-	f32 z;
-};
-
-struct float4
-{
-	f32 x;
-	f32 y;
-	f32 z;
-	f32 w;
-};
-
-struct mtx34
-{
-	f32 row_column[3][4];
-};
+struct float2 { f32 x; f32 y; };
+struct float3 { f32 x; f32 y; f32 z; };
+struct float4 { f32 x; f32 y; f32 z; f32 w; };
+struct float3x4 {  float4 rows[3]; };
 
 // ====================================
 //  Math Funcs

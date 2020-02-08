@@ -4,8 +4,6 @@
 #include "Win32Window.h"
 #include "MiniApp.h"
 
-std::atomic_int g_appthread_has_exited = 0;
-
 void AppthreadMain(BaseApp* app)
 {
 	app->Init();
@@ -13,7 +11,6 @@ void AppthreadMain(BaseApp* app)
 	while (app->Update()) ;
 	
 	app->Exit();
-	g_appthread_has_exited = 1;
 }
 
 INT WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR lpCmdLine, INT nCmdShow)

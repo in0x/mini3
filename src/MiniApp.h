@@ -10,8 +10,9 @@ class MiniApp : public BaseApp
 	virtual void Exit() override;
 
 private:
-	Gfx::Commandlist m_geo_upload_cmds;
+	Gfx::Commandlist m_upload_cmds;
+	Gfx::GpuBuffer m_camera_constants;
 
-	mtx34 m_view;
-	mtx34 m_projection;
+	float3x4 m_view;
+	float3x4 m_proj;
 };

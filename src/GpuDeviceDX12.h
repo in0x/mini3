@@ -129,13 +129,6 @@ namespace Gfx
 		ComPtr<ID3D12PipelineState> pso = nullptr;
 	};
 
-	struct GpuResource
-	{
-		ComPtr<ID3D12Resource> resource = nullptr;
-		D3D12_CPU_DESCRIPTOR_HANDLE srv;
-		D3D12_CPU_DESCRIPTOR_HANDLE uav;
-	};
-
 	struct GpuBufferDesc
 	{
 		u32 sizes_bytes = 0;
@@ -147,10 +140,13 @@ namespace Gfx
 		DXGI_FORMAT format = DXGI_FORMAT_UNKNOWN;
 	};
 
-	struct GpuBuffer : public GpuResource
+	struct GpuBuffer
 	{
-		D3D12_CPU_DESCRIPTOR_HANDLE cbv;
 		GpuBufferDesc desc;
+		ID3D12Resource* resource = nullptr;
+		D3D12_CPU_DESCRIPTOR_HANDLE srv;
+		D3D12_CPU_DESCRIPTOR_HANDLE uav;
+		D3D12_CPU_DESCRIPTOR_HANDLE cbv;
 	};
 
 	struct CpuBuffer
@@ -206,11 +202,10 @@ namespace Gfx
 	void CreateGpuDevice(void* main_window_handle, u32 flags);
 	void DestroyGpuDevice();
 	void RegisterCommandProducerThread();
-
-	// All of these APIs need to be thread-safe.
 	void BeginPresent();
 	void EndPresent();
 
+	// All of these APIs need to be thread-safe.
 	Commandlist CreateCommandList(D3D12_COMMAND_LIST_TYPE type, wchar_t* name = nullptr);
 	
 	// Acquires a CommandAllocator and resets the CommandList to ready it for recording.
@@ -229,7 +224,9 @@ namespace Gfx
 
 	GpuBuffer CreateVertexBuffer(Commandlist cmd_list, void* vertex_data, u32 vertex_bytes, u32 vertex_stride_bytes);
 	GpuBuffer CreateIndexBuffer(Commandlist cmd_list, void* index_data, u32 index_bytes);
-	
+
+	GpuBuffer CreateBuffer(Commandlist cmd_list, GpuBufferDesc const& desc, wchar_t* name, void* initial_data = nullptr);
+
 	void BindVertexBuffer(Commandlist cmd_list, GpuBuffer const * vertex_buffer, u8 slot, u32 offset);
 	void BindVertexBuffers(Commandlist cmd_list, GpuBuffer const ** vertex_buffers, u8 slot, u8 count, u32 const* offsets);
 	void BindIndexBuffer(Commandlist cmd_list, GpuBuffer const* index_buffer, u32 offset);
