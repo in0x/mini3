@@ -1961,9 +1961,9 @@ u64 GpuDeviceDX12::CloseAndSubmitCommandList(Gfx::Commandlist handle)
 //	return gfx_queue->ExecuteCommandLists((ID3D12CommandList**)work.Data(), work.Size());
 //}
 
-void GpuDeviceDX12::WaitForFenceValueCpuBlocking(u64 fenceValue)
+void GpuDeviceDX12::WaitForFenceValueCpuBlocking(u64 fence_value)
 {
-	m_cmd_queue_mng.WaitForFenceCpuBlocking(fenceValue);
+	m_cmd_queue_mng.WaitForFenceCpuBlocking(fence_value);
 }
 
 static ComPtr<ID3D12Resource> CreateRenderTarget(ID3D12Device* device, ID3D12DescriptorHeap* heap, ComPtr<IDXGISwapChain3> swap_chain, DXGI_FORMAT format, u32 descriptor_size, u32 frame_idx)

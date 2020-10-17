@@ -20,9 +20,20 @@
     <ClInclude Include="..\src\InputMessageQueue.h" />
     <ClInclude Include="..\src\Array.h" />
     <ClInclude Include="..\src\FrameTimer.h" />
-    <ClInclude Include="..\src\GpuDeviceDX12.h" />
     <ClInclude Include="..\src\Math.h" />
     <ClInclude Include="..\src\GeoUtils.h" />
     <ClInclude Include="..\src\MemUtils.h" />
+    <ClInclude Include="..\src\PSO.h" />
+    <ClInclude Include="..\src\GpuDeviceDX12.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="shaders">
+      <UniqueIdentifier>{387d01cc-fc20-4f53-b1e1-c4021fb8f221}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <FxCompile Include="..\src\shaders\SimpleColor.hlsl">
+      <Filter>shaders</Filter>
+    </FxCompile>
   </ItemGroup>
 </Project>

@@ -211,16 +211,18 @@ namespace Gfx
 	// Acquires a CommandAllocator and resets the CommandList to ready it for recording.
 	void OpenCommandList(Commandlist cmd_list);
 
+	// Explicit submit api is a much better alternative to internal queuing and flushing.Anything else is unsafe other than putting it in the
+	// users hands or duplicating cmdlists and not allowing them to be reused throughout the frame.
+
 	// Closes the CommandList, free's up its allocator and pushes it directly into the graphics queue.
 	u64 SubmitCommandList(Commandlist cmd_list);
 
-	// TODO: This api is a much better alternative to internal queuing and flushing. Anything else is unsafe other than putting it in the
-	// users hands or duplicating cmdlists and not allowing them to be reused throughout the frame.
+	// TODO(pw): Create plumbing to feed these into internal command queue. 
 	u64 SubmitCommandLists(Commandlist* cmd_list, u32 count);
 
-	void WaitForFenceValueCpuBlocking(u64 fenceValue);
-	void TransitionBarrier(ID3D12Resource* resources, Commandlist cmd_list, ResourceState::Enum stateBefore, ResourceState::Enum stateAfter);
-	void TransitionBarriers(ID3D12Resource** resources, u8 numBarriers, Commandlist cmd_list, ResourceState::Enum stateBefore, ResourceState::Enum stateAfter);
+	void WaitForFenceValueCpuBlocking(u64 fence_value);
+	void TransitionBarrier(ID3D12Resource* resources, Commandlist cmd_list, ResourceState::Enum state_before, ResourceState::Enum state_after);
+	void TransitionBarriers(ID3D12Resource** resources, u8 numBarriers, Commandlist cmd_list, ResourceState::Enum state_before, ResourceState::Enum state_after);
 
 	GpuBuffer CreateVertexBuffer(Commandlist cmd_list, void* vertex_data, u32 vertex_bytes, u32 vertex_stride_bytes);
 	GpuBuffer CreateIndexBuffer(Commandlist cmd_list, void* index_data, u32 index_bytes);

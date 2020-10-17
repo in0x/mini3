@@ -38,6 +38,9 @@ void MiniApp::Init()
 
 	u64 upload_fence = Gfx::SubmitCommandList(m_upload_cmds);
 	Gfx::WaitForFenceValueCpuBlocking(upload_fence);
+
+	// TODO(pw): Finished implementing geomtry upload. Next we need to write shaders and PSOs so we can start binding
+	// them and render the geometry. We also need fill out the data that goes into our camera constant buffer.
 }
 
 bool MiniApp::Update()

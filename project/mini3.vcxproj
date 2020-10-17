@@ -170,9 +170,13 @@
     <ClInclude Include="..\src\MemUtils.h" />
     <ClInclude Include="..\src\MiniApp.h" />
     <ClInclude Include="..\src\FrameTimer.h" />
+    <ClInclude Include="..\src\PSO.h" />
     <ClInclude Include="..\src\Win32Window.h" />
     <ClInclude Include="..\src\BaseApp.h" />
     <ClInclude Include="..\src\Win32.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <FxCompile Include="..\src\shaders\SimpleColor.hlsl" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
