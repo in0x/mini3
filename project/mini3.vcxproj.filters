@@ -32,7 +32,7 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
-    <FxCompile Include="..\src\shaders\SimpleColor.hlsl">
+    <FxCompile Include="..\src\shaders\VertexColor.hlsl">
       <Filter>shaders</Filter>
     </FxCompile>
   </ItemGroup>

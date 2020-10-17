@@ -176,7 +176,7 @@
     <ClInclude Include="..\src\Win32.h" />
   </ItemGroup>
   <ItemGroup>
-    <FxCompile Include="..\src\shaders\SimpleColor.hlsl" />
+    <FxCompile Include="..\src\shaders\VertexColor.hlsl" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
