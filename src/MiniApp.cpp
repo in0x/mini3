@@ -17,6 +17,8 @@ void MiniApp::Init()
 	m_upload_cmds = Gfx::CreateCommandList(D3D12_COMMAND_LIST_TYPE_DIRECT, L"geo_upload_cmds");
 	Gfx::OpenCommandList(m_upload_cmds);
 
+	m_draw_cmds = Gfx::CreateCommandList(D3D12_COMMAND_LIST_TYPE_DIRECT, L"draw_cmds");
+
 	Gfx::Mesh mesh;
 	u32 const vertex_size = sizeof(GeoUtils::Vertex);
 	mesh.vertex_buffer_gpu = Gfx::CreateVertexBuffer(m_upload_cmds, cube.vertices, vertex_size * GeoUtils::CubeGeometry::num_vertices, vertex_size);
@@ -27,20 +29,35 @@ void MiniApp::Init()
 	submesh->base_vertex_location = 0;
 	submesh->first_index_location = 0;
 
+	PerObjectData cbData;
+	MemZeroSafe(cbData);
+
 	Gfx::GpuBufferDesc cam_desc;
 	cam_desc.bind_flags = Gfx::BindFlags::ConstantBuffer;
 	cam_desc.usage = Gfx::BufferUsage::Default;
 	cam_desc.cpu_access_flags = 0;
-	cam_desc.sizes_bytes = sizeof(m_camera_constants);
+	cam_desc.sizes_bytes = sizeof(PerObjectData);
 
-	MemZeroUnsafe(m_camera_constants);
-	m_camera_constants = Gfx::CreateBuffer(m_upload_cmds, cam_desc, L"CameraConstants", &m_camera_constants);
-
+	m_camera_constants = Gfx::CreateBuffer(m_upload_cmds, cam_desc, L"CameraConstants", &cbData);
 	u64 upload_fence = Gfx::SubmitCommandList(m_upload_cmds);
+
+	Gfx::CompileBasicPSOs();
 	Gfx::WaitForFenceValueCpuBlocking(upload_fence);
 
 	// TODO(pw): Finished implementing geomtry upload. Next we need to write shaders and PSOs so we can start binding
 	// them and render the geometry. We also need fill out the data that goes into our camera constant buffer.
+}
+
+void MiniApp::render()
+{
+	Gfx::OpenCommandList(m_draw_cmds);
+
+	Gfx::BindPSO(m_draw_cmds, Gfx::BasicPSO::VertexColorSolid);
+	Gfx::BindConstantBuffer(&m_camera_constants, Gfx::ShaderStage::Vertex, 0);
+
+
+
+	Gfx::SubmitCommandList(m_draw_cmds);
 }
 
 bool MiniApp::Update()
@@ -57,7 +74,7 @@ bool MiniApp::Update()
 	}
 
 	Gfx::BeginPresent();
-	// ...
+	render();
 	Gfx::EndPresent();
 	
 	return true;

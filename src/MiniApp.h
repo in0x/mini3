@@ -10,9 +10,17 @@ class MiniApp : public BaseApp
 	virtual void Exit() override;
 
 private:
+	void render();
+
 	Gfx::Commandlist m_upload_cmds;
+	Gfx::Commandlist m_draw_cmds;
 	Gfx::GpuBuffer m_camera_constants;
 
-	float3x4 m_view;
-	float3x4 m_proj;
+	//float3x4 m_view;
+	//float3x4 m_proj;
+
+	struct PerObjectData
+	{
+		float4x4 model_view_proj;
+	};
 };

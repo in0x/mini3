@@ -1,12 +1,33 @@
 #include "GpuDeviceDX12.h"
 #include "Core.h"
 #include "MemUtils.h"
+#include "PSO.h"
+
+#if defined(NTDDI_WIN10_RS2)
+#define USES_DXGI6 1
+#else
+#define USES_DXGI6 0
+#endif
+
+#if USES_DXGI6
+#include <dxgi1_6.h>
+#else
+#include <dxgi1_5.h>
+#endif
+
+#ifdef _DEBUG
+#include <dxgidebug.h>
+#endif
+
+using Microsoft::WRL::ComPtr;
 
 static constexpr size_t GPU_SAMPLER_HEAP_COUNT = 16;
 static constexpr size_t GPU_RESOURCE_HEAP_CBV_COUNT = 12;
 static constexpr size_t GPU_RESOURCE_HEAP_SRV_COUNT = 64;
 static constexpr size_t GPU_RESOURCE_HEAP_UAV_COUNT = 8;
 static constexpr size_t GPU_RESOURCE_HEAP_CBV_SRV_UAV_COUNT = GPU_RESOURCE_HEAP_CBV_COUNT + GPU_RESOURCE_HEAP_SRV_COUNT + GPU_RESOURCE_HEAP_UAV_COUNT;
+
+static const u32 MAX_FRAME_COUNT = 2;
 
 using namespace Gfx;
 
@@ -378,9 +399,16 @@ public:
 
 	Gfx::Commandlist CreateCommandList(D3D12_COMMAND_LIST_TYPE type, wchar_t* name = nullptr);
 
+	ComPtr<ID3D12PipelineState> CreateGraphicsPSO(D3D12_GRAPHICS_PIPELINE_STATE_DESC* desc);
+
 	void OpenCommandList(Gfx::Commandlist handle);
 	u64 CloseAndSubmitCommandList(Gfx::Commandlist handle);
 	void WaitForFenceValueCpuBlocking(u64 fenceValue);
+
+	DXGI_FORMAT GetBackBufferFormat() const { return m_backbuffer_format; }
+	DXGI_FORMAT GetDSFormat() const { return m_depthbuffer_format; }
+
+	void BindConstantBuffer(GpuBuffer const* constant_buffer, ShaderStage::Enum stage, u8 slot);
 
 private:
 	void enableDebugLayer();
@@ -1940,6 +1968,22 @@ Gfx::Commandlist GpuDeviceDX12::CreateCommandList(D3D12_COMMAND_LIST_TYPE type, 
 	return Gfx::Commandlist{ (s32)m_external_cmd_lists.IndexOf(next_slot) };
 }
 
+ComPtr<ID3D12PipelineState> GpuDeviceDX12::CreateGraphicsPSO(D3D12_GRAPHICS_PIPELINE_STATE_DESC* desc)
+{
+	ComPtr<ID3D12PipelineState> pso;
+
+	desc->pRootSignature = m_graphics_root_sig.Get();
+	HRESULT result = m_d3d_device->CreateGraphicsPipelineState(desc, IID_PPV_ARGS(&pso));
+	if (SUCCEEDED(result))
+	{
+		return pso;
+	}
+	else
+	{
+		return nullptr;
+	}
+}
+
 void GpuDeviceDX12::OpenCommandList(Gfx::Commandlist handle)
 {
 	ID3D12GraphicsCommandList* cmd_list = HandleToCommandList(handle);
@@ -1964,6 +2008,12 @@ u64 GpuDeviceDX12::CloseAndSubmitCommandList(Gfx::Commandlist handle)
 void GpuDeviceDX12::WaitForFenceValueCpuBlocking(u64 fence_value)
 {
 	m_cmd_queue_mng.WaitForFenceCpuBlocking(fence_value);
+}
+
+void GpuDeviceDX12::BindConstantBuffer(GpuBuffer const* constant_buffer, ShaderStage::Enum stage, u8 slot)
+{
+	FrameResource* frameResource = GetFrameResources();
+	frameResource->resource_descriptors_gpu.BindDescriptor(stage, slot, &constant_buffer->cbv, m_d3d_device.Get());
 }
 
 static ComPtr<ID3D12Resource> CreateRenderTarget(ID3D12Device* device, ID3D12DescriptorHeap* heap, ComPtr<IDXGISwapChain3> swap_chain, DXGI_FORMAT format, u32 descriptor_size, u32 frame_idx)
@@ -2137,23 +2187,27 @@ GpuBuffer GpuDeviceDX12::CreateBuffer(ID3D12GraphicsCommandList* cmd_list, GpuBu
 namespace Gfx
 {
 	static GpuDeviceDX12* g_gpu_device = nullptr;
+	static PSOCache* g_pso_cache = nullptr;
 
 	void CreateGpuDevice(void* main_window_handle, u32 flags)
 	{
 		ASSERT(g_gpu_device == nullptr);
 		g_gpu_device = new GpuDeviceDX12();
 		g_gpu_device->Init(main_window_handle, flags);
+		g_pso_cache = new PSOCache();
 	}
 
 	void DestroyGpuDevice()
 	{
 		ASSERT(g_gpu_device != nullptr);
 
+		delete g_pso_cache;
+
 		g_gpu_device->Flush();
 		g_gpu_device->Destroy();
 
 		delete g_gpu_device;
-
+		
 #ifdef _DEBUG
 #if 0 // Enable to actually be able to debug resource leaks, since the device ref held by IDXGIDebug1 causes a throw...
 		IDXGIInfoQueue* dxgiInfoQueue;
@@ -2182,6 +2236,16 @@ namespace Gfx
 	void EndPresent()
 	{
 		g_gpu_device->EndPresent();
+	}
+
+	DXGI_FORMAT GetBackBufferFormat()
+	{
+		return g_gpu_device->GetBackBufferFormat();
+	}
+
+	DXGI_FORMAT GetDSFormat()
+	{
+		return g_gpu_device->GetDSFormat();
 	}
 
 	void TransitionBarrier(ID3D12Resource* resource, Commandlist cmd_list_handle, ResourceState::Enum state_before, ResourceState::Enum state_after)
@@ -2216,7 +2280,13 @@ namespace Gfx
 		return g_gpu_device->CloseAndSubmitCommandList(cmd_list);
 	}
 
-	void BindVertexBuffer(Commandlist cmd_list_handle, GpuBuffer const * vertex_buffer, u8 slot, u32 offset)
+	void BindConstantBuffer(GpuBuffer const* constant_buffer, ShaderStage::Enum stage, u8 slot)
+	{
+		ASSERT(slot < GPU_RESOURCE_HEAP_CBV_COUNT);
+		g_gpu_device->BindConstantBuffer(constant_buffer, stage, slot);
+	}
+
+	void BindVertexBuffer(Commandlist cmd_list_handle, GpuBuffer const* vertex_buffer, u8 slot, u32 offset)
 	{
 		ID3D12GraphicsCommandList* command_list = g_gpu_device->HandleToCommandList(cmd_list_handle);
 
@@ -2231,7 +2301,7 @@ namespace Gfx
 		command_list->IASetVertexBuffers(static_cast<u32>(slot), 1, &buffer_view);
 	}
 
-	void BindVertexBuffers(Commandlist cmd_list_handle, GpuBuffer const ** vertex_buffers, u8 slot, u8 count, u32 const* offsets)
+	void BindVertexBuffers(Commandlist cmd_list_handle, GpuBuffer const** vertex_buffers, u8 slot, u8 count, u32 const* offsets)
 	{
 		ID3D12GraphicsCommandList* command_list = g_gpu_device->HandleToCommandList(cmd_list_handle);
 
@@ -2266,6 +2336,48 @@ namespace Gfx
 		buffer_view.Format = index_buffer->desc.format;
 
 		command_list->IASetIndexBuffer(&buffer_view);
+	}
+
+	void CompileBasicPSOs()
+	{
+		g_pso_cache->CompileBasicPSOs();
+	}
+
+	GraphicsPSO CreateGraphicsPSO(D3D12_GRAPHICS_PIPELINE_STATE_DESC* desc)
+	{
+		GraphicsPSO pso;
+		pso.pso = g_gpu_device->CreateGraphicsPSO(desc);
+		pso.desc = *desc;
+	}
+
+	void BindPSO(Commandlist cmd_list, BasicPSO::Enum basicPSOType)
+	{
+		BindPSO(cmd_list, g_pso_cache->GetBasicPSO(basicPSOType));
+	}
+
+	D3D12_PRIMITIVE_TOPOLOGY ConvertToPrimitiveTopology(D3D12_PRIMITIVE_TOPOLOGY_TYPE type)
+	{
+		switch (type)
+		{
+		case D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE:
+		{
+			return D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+		}
+		default:
+		{
+			ASSERT_FAIL_F("Unsupported primitive toplogy type!");
+			return D3D_PRIMITIVE_TOPOLOGY_UNDEFINED;
+		}
+		}
+	}
+
+	void BindPSO(Commandlist cmd_list, PSO pso_handle)
+	{
+		ID3D12GraphicsCommandList* command_list = g_gpu_device->HandleToCommandList(cmd_list);
+		GraphicsPSO const* pso = g_pso_cache->GetPSO(pso_handle);
+
+		command_list->SetPipelineState(pso->pso.Get());
+		command_list->IASetPrimitiveTopology(ConvertToPrimitiveTopology(pso->desc.PrimitiveTopologyType));
 	}
 
 	GpuBuffer CreateVertexBuffer(Commandlist cmd_list_handle, void* vertex_data, u32 vertex_bytes, u32 vertex_stride_bytes)

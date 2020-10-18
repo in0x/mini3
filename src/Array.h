@@ -87,16 +87,18 @@ public:
 		return &m_data[m_size++];
 	}
 
-	void PushBack(T const& value)
+	T* PushBack(T const& value)
 	{
 		ASSERT_F(m_size < Capacity, "Array exceeded capacity %u!", Capacity);
-		m_data[m_size++] = value;
+		m_data[m_size] = value;
+		return &m_data[m_size++];
 	}
 
-	void PushBack(T&& value)
+	T* PushBack(T&& value)
 	{
 		ASSERT_F(m_size < Capacity, "Array exceeded capacity %u!", Capacity);
-		m_data[m_size++] = std::move(value);
+		m_data[m_size] = std::move(value);
+		return &m_data[m_size++];
 	}
 
 	T* TryPushBack()
