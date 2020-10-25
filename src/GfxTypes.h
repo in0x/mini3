@@ -96,14 +96,14 @@ namespace Gfx
 
 	struct Shader
 	{
-		ComPtr<ID3DBlob> blob = nullptr;
+		ID3DBlob* blob = nullptr;
 		ShaderStage::Enum stage;
 	};
 
 	struct GraphicsPSO
 	{
 		D3D12_GRAPHICS_PIPELINE_STATE_DESC desc;
-		ComPtr<ID3D12PipelineState> pso = nullptr;
+		ID3D12PipelineState* pso = nullptr;
 	};
 
 	struct PSO

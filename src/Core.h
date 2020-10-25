@@ -144,6 +144,13 @@ inline void MemZeroSafe(T& data)
 }
 
 template<typename T>
+inline void MemZeroSafe(T* data)
+{
+	static_assert(std::is_trivially_copyable<T>::value, "Cannot memzero non-trivial type!");
+	memzero(data, sizeof(T));
+}
+
+template<typename T>
 inline void MemZeroUnsafe(T& data)
 {
 	memzero(&data, sizeof(T));

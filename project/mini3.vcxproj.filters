@@ -9,6 +9,7 @@
     <ClCompile Include="..\src\FrameTimer.cpp" />
     <ClCompile Include="..\src\Core.cpp" />
     <ClCompile Include="..\src\GpuDeviceDX12.cpp" />
+    <ClCompile Include="..\src\PSO.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\src\d3dx12.h" />
@@ -25,6 +26,8 @@
     <ClInclude Include="..\src\MemUtils.h" />
     <ClInclude Include="..\src\PSO.h" />
     <ClInclude Include="..\src\GpuDeviceDX12.h" />
+    <ClInclude Include="..\src\BasicPSOs.h" />
+    <ClInclude Include="..\src\GfxTypes.h" />
   </ItemGroup>
   <ItemGroup>
     <Filter Include="shaders">

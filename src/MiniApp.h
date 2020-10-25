@@ -15,12 +15,17 @@ private:
 	Gfx::Commandlist m_upload_cmds;
 	Gfx::Commandlist m_draw_cmds;
 	Gfx::GpuBuffer m_camera_constants;
+	
+	Gfx::Mesh m_cube_mesh;
 
-	//float3x4 m_view;
-	//float3x4 m_proj;
+	mtx4x4 m_world;
+	mtx4x4 m_view;
+	mtx4x4 m_proj;
 
 	struct PerObjectData
 	{
-		float4x4 model_view_proj;
+		mtx4x4 model;
+		mtx4x4 view_proj;
+		u8 pad[128];
 	};
 };

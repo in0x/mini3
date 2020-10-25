@@ -30,7 +30,7 @@ namespace Gfx
 		}
 	};
 
-	static ComPtr<ID3DBlob> CompileShader(wchar_t const* filename, ShaderCompilationSettings const* settings)
+	static ID3DBlob* CompileShader(wchar_t const* filename, ShaderCompilationSettings const* settings)
 	{
 		u32 flags = settings->GetFlags();
 
@@ -48,14 +48,21 @@ namespace Gfx
 			&byte_code,
 			&errors);
 
-		ASSERT_HR_F(result, (char*)errors->GetBufferPointer());
-
 		if (SUCCEEDED(result))
 		{
-			return byte_code;
+			return byte_code.Detach();
 		}
 		else
 		{
+			if (errors)
+			{
+				ASSERT_HR_F(result, "%s", (char*)errors->GetBufferPointer());
+			}
+			else
+			{
+				ASSERT_HR_F(result, "Failed shader compilation, check HR!");
+			}
+
 			return nullptr;
 		}
 	}
@@ -89,6 +96,7 @@ namespace Gfx
 			settings.target = "vs_5_1";
 			shader.blob = CompileShader(filename, &settings);
 			shader.stage = ShaderStage::Vertex;
+			break;
 		}
 		case ShaderStage::Pixel:
 		{
@@ -98,6 +106,7 @@ namespace Gfx
 			settings.target = "ps_5_1";
 			shader.blob = CompileShader(filename, &settings);
 			shader.stage = ShaderStage::Pixel;
+			break;
 		}
 		case ShaderStage::Compute:
 		{
@@ -107,10 +116,12 @@ namespace Gfx
 			settings.target = "cs_5_1";
 			shader.blob = CompileShader(filename, &settings);
 			shader.stage = ShaderStage::Compute;
+			break;
 		}
 		default:
 		{
 			ASSERT_FAIL_F("Tried to compile shader of unsupported stage!");
+			break;
 		}
 		}
 
@@ -124,6 +135,7 @@ namespace Gfx
 		desc->RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
 		desc->RasterizerState.CullMode = D3D12_CULL_MODE_BACK;
 		desc->RasterizerState.DepthClipEnable = true;
+		desc->RasterizerState.FrontCounterClockwise = false;
 		desc->RasterizerState.ConservativeRaster = D3D12_CONSERVATIVE_RASTERIZATION_MODE_OFF;
 
 		u32 const numRtBlends = ARRAY_SIZE(desc->BlendState.RenderTarget);
@@ -147,10 +159,23 @@ namespace Gfx
 		desc->PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
 	}
 
+	void PSOCache::Destroy()
+	{
+		for (GraphicsPSO const& pso : m_PSOs)
+		{
+			pso.pso->Release();
+		}
+
+		for (Shader const& shader : m_Shaders)
+		{
+			shader.blob->Release();
+		}
+	}
+
 	void PSOCache::CompileBasicPSOs()
 	{
-		Shader* vert_shader = m_Shaders.PushBack(CreateShader(L"Shaders\\VertexColor.hlsl", ShaderStage::Vertex));
-		Shader* pixl_shader = m_Shaders.PushBack(CreateShader(L"Shaders\\VertexColor.hlsl", ShaderStage::Pixel));
+		Shader* vert_shader = m_Shaders.PushBack(CreateShader(L"src\\shaders\\VertexColor.hlsl", ShaderStage::Vertex));
+		Shader* pixl_shader = m_Shaders.PushBack(CreateShader(L"src\\shaders\\VertexColor.hlsl", ShaderStage::Pixel));
 
 		D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
 		DefaultInitGraphicsPsoDesc(&pso_desc);
@@ -161,10 +186,10 @@ namespace Gfx
 		pso_desc.PS.pShaderBytecode = pixl_shader->blob->GetBufferPointer();
 		pso_desc.PS.BytecodeLength = pixl_shader->blob->GetBufferSize();
 
-		D3D12_INPUT_ELEMENT_DESC elements[2];
+		D3D12_INPUT_ELEMENT_DESC elements[4];
 
 		pso_desc.InputLayout;
-		pso_desc.InputLayout.NumElements = 2;
+		pso_desc.InputLayout.NumElements = 4;
 		pso_desc.InputLayout.pInputElementDescs = elements;
 
 		elements[0].SemanticName = "POSITION";
@@ -175,13 +200,29 @@ namespace Gfx
 		elements[0].InputSlotClass = D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA;
 		elements[0].InstanceDataStepRate = 0;
 
-		elements[1].SemanticName = "COLOR";
+		elements[1].SemanticName = "NORMAL";
 		elements[1].SemanticIndex = 0;
 		elements[1].Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
 		elements[1].InputSlot = 0;
 		elements[1].AlignedByteOffset = 12;
 		elements[1].InputSlotClass = D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA;
 		elements[1].InstanceDataStepRate = 0;
+
+		elements[2].SemanticName = "TANGENT";
+		elements[2].SemanticIndex = 0;
+		elements[2].Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
+		elements[2].InputSlot = 0;
+		elements[2].AlignedByteOffset = 24;
+		elements[2].InputSlotClass = D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA;
+		elements[2].InstanceDataStepRate = 0;
+
+		elements[3].SemanticName = "TEXCOORD";
+		elements[3].SemanticIndex = 0;
+		elements[3].Format = DXGI_FORMAT_R32G32_FLOAT;
+		elements[3].InputSlot = 0;
+		elements[3].AlignedByteOffset = 36;
+		elements[3].InputSlotClass = D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA;
+		elements[3].InstanceDataStepRate = 0;
 
 		pso_desc.DepthStencilState.DepthEnable = true;
 		pso_desc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;
@@ -199,7 +240,10 @@ namespace Gfx
 		{
 			u32 handle_solid = m_PSOs.Size();
 			m_PSOs.PushBack(vert_color_solid);
-			m_BasicPSOHandles[BasicPSO::VertexColorSolid].handle = handle_solid;
+
+			ASSERT(m_BasicPSOHandles.Size() == BasicPSO::VertexColorSolid);
+			Gfx::PSO* pso = m_BasicPSOHandles.PushBack();
+			pso->handle = handle_solid;
 		}
 		else
 		{
@@ -210,7 +254,10 @@ namespace Gfx
 		{
 			u32 handle_wire = m_PSOs.Size();
 			m_PSOs.PushBack(vert_color_wire);
-			m_BasicPSOHandles[BasicPSO::VertexColorWireframe].handle = handle_wire;
+
+			ASSERT(m_BasicPSOHandles.Size() == BasicPSO::VertexColorWireframe);
+			Gfx::PSO* pso = m_BasicPSOHandles.PushBack();
+			pso->handle = handle_wire;
 		}
 		else
 		{

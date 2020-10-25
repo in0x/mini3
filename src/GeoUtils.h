@@ -6,10 +6,10 @@ namespace GeoUtils
 {
 	struct Vertex
 	{
-		float3 position;
-		float3 normal;
-		float3 tangent_u;
-		float2 uv;
+		vec3 position;
+		vec3 normal;
+		vec3 tangent_u;
+		vec2 uv;
 	};
 
 	typedef u16 Index;

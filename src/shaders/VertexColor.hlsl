@@ -1,7 +1,9 @@
 struct VertexIn
 {
 	float3 pos_local : POSITION;
-	float4 color : COLOR;
+	float3 normal	 : NORMAL;
+	float3 tangent	 : TANGENT;
+	float2 uv		 : TEXCOORD;
 };
 
 struct VertexOut
@@ -14,16 +16,19 @@ struct VertexOut
 
 cbuffer cbPerObject : register(b0)
 {
-	float4x4 g_ModelViewProj;
+	float4x4 g_model;
+	float4x4 g_view_proj;
 };
 
 VertexOut vs_main(VertexIn vsIn)
 {
 	VertexOut vsOut;
 
-	vsOut.pos_sp = mul(float4(vsIn.pos_local, 1.0f), g_ModelViewProj);
+	float4 pos_ws = mul(float4(vsIn.pos_local, 1.0f), g_model);
+	float4 pos_sp = mul(pos_ws, g_view_proj);
 
-	vsOut.color = vsIn.color;
+	vsOut.pos_sp = pos_sp;
+	vsOut.color = float4(1.0f, 0.0f, 0.0f, 1.0f);
 
 	return vsOut;
 }

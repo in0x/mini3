@@ -8,6 +8,8 @@ namespace Gfx
 {
 	struct PSOCache
 	{
+		void Destroy();
+
 		void CompileBasicPSOs();
 		PSO GetBasicPSO(BasicPSO::Enum type);
 		GraphicsPSO const* GetPSO(PSO pso_handle);

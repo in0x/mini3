@@ -36,13 +36,19 @@ static D3D12_RESOURCE_STATES ResourceStateToDX12(ResourceState::Enum state)
 	return static_cast<D3D12_RESOURCE_STATES>(state);
 }
 
-void TransitionBarrier(ID3D12Resource* resource, ID3D12GraphicsCommandList* cmd_list, ResourceState::Enum state_before, ResourceState::Enum state_after)
+void TransitionBarrier(ID3D12Resource* resource, 
+	ID3D12GraphicsCommandList* cmd_list, 
+	ResourceState::Enum state_before, 
+	ResourceState::Enum state_after, 
+	u32 sub_resource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,
+	D3D12_RESOURCE_BARRIER_FLAGS flags = D3D12_RESOURCE_BARRIER_FLAG_NONE)
 {
 	D3D12_RESOURCE_BARRIER barrier = CD3DX12_RESOURCE_BARRIER::Transition(
 		resource,
 		ResourceStateToDX12(state_before),
-		ResourceStateToDX12(state_after)
-	);
+		ResourceStateToDX12(state_after),
+		sub_resource,
+		flags);
 
 	cmd_list->ResourceBarrier(1, &barrier);
 }
@@ -387,7 +393,10 @@ public:
 	void EndPresent();
 	void Flush();
 
-	Gfx::GpuBuffer CreateBuffer(ID3D12GraphicsCommandList* cmd_list, Gfx::GpuBufferDesc const& desc, void* initial_data, wchar_t* name = nullptr);
+	void UpdateConstantBindings(ID3D12GraphicsCommandList* cmd_list);
+
+	Gfx::GpuBuffer CreateBuffer(ID3D12GraphicsCommandList* cmd_list, GpuBufferDesc const& desc, void* initial_data, wchar_t* name = nullptr);
+	void UpdateBuffer(ID3D12GraphicsCommandList* cmd_list, GpuBuffer const* buffer, void* data, u32 size_bytes);
 
 	inline ID3D12Device* GetD3DDevice() const { return m_d3d_device.Get(); }
 	
@@ -404,6 +413,8 @@ public:
 	void OpenCommandList(Gfx::Commandlist handle);
 	u64 CloseAndSubmitCommandList(Gfx::Commandlist handle);
 	void WaitForFenceValueCpuBlocking(u64 fenceValue);
+
+	void SetupGfxCommandList(ID3D12GraphicsCommandList* cmdlist);
 
 	DXGI_FORMAT GetBackBufferFormat() const { return m_backbuffer_format; }
 	DXGI_FORMAT GetDSFormat() const { return m_depthbuffer_format; }
@@ -441,6 +452,8 @@ private:
 	u32									m_init_flags;
 	u32									m_backbuffer_width;
 	u32									m_backbuffer_height;
+
+	u64									m_frame_setup_fence;
 
 	ComPtr<ID3D12Device>                m_d3d_device;
 	CommandQueueManager					m_cmd_queue_mng;
@@ -604,7 +617,7 @@ void DescriptorTableFrameAllocator::BindDescriptor(ShaderStage::Enum stage, u32 
 	m_is_dirty[stage] = true;
 
 	D3D12_CPU_DESCRIPTOR_HANDLE dst_staging = m_heap_cpu->GetCPUDescriptorHandleForHeapStart();
-	dst_staging.ptr = index * m_item_size;
+	dst_staging.ptr += index * m_item_size;
 	device->CopyDescriptorsSimple(1, dst_staging, *descriptor, m_descriptor_type);
 }
 
@@ -1137,7 +1150,12 @@ void GpuDeviceDX12::BeginPresent()
 		cmdlist->OMSetRenderTargets(1, &rtvDescriptor, FALSE, &dsvDescriptor); // todo: do we need this?
 		cmdlist->ClearRenderTargetView(rtvDescriptor, blueViolet, 0, nullptr);
 		cmdlist->ClearDepthStencilView(dsvDescriptor, D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, 0, nullptr);
-	}	
+	}
+
+	// Send the command list off to the GPU for processing.
+	present_cmds->Close();
+	m_frame_setup_fence = m_cmd_queue_mng.ExecuteCommandList(cmdlist);
+	m_cmd_queue_mng.WaitForFenceCpuBlocking(m_frame_setup_fence);
 }
 
 void GpuDeviceDX12::EndPresent()
@@ -1149,8 +1167,11 @@ void GpuDeviceDX12::EndPresent()
 	FullFrameCommandList* present_cmds = frame->GetPresentCommandlist();
 	ID3D12GraphicsCommandList* cmdlist = present_cmds->GetCommandlist();
 
-	frame->resource_descriptors_gpu.Update(device, cmdlist);
-	frame->sampler_descriptors_gpu.Update(device, cmdlist);
+	present_cmds->Open();
+	SetupGfxCommandList(cmdlist);
+
+	//frame->resource_descriptors_gpu.Update(device, cmdlist);
+	//frame->sampler_descriptors_gpu.Update(device, cmdlist);
 
 	// Transition the render target to the state that allows it to be presented to the display.
 	TransitionBarrier(frame->GetRenderTarget(), cmdlist, ResourceState::Render_Target, ResourceState::Present);
@@ -1188,7 +1209,7 @@ void GpuDeviceDX12::EndPresent()
 		ASSERT_HR(hr);
 	}
 
-	MoveToNextFrame();
+	MoveToNextFrame(); // TODO(): shouldnt we be doing this waiting for last frame (not this new one)?
 }
 
 void GpuDeviceDX12::Flush()
@@ -1304,7 +1325,7 @@ void GpuDeviceDX12::Init(void* windowHandle, u32 initFlags)
 	m_depthbuffer_format = DXGI_FORMAT_D24_UNORM_S8_UINT;
 
 	m_dxgi_factory_flags = 0;
-	m_output_size = { 0, 0, 1, 1 };
+	m_output_size = { 0, 0, 800, 600 }; // TODO(): drive this from window config
 	m_color_space = DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709;
 
 	if (bEnableDebugLayer)
@@ -1986,9 +2007,36 @@ ComPtr<ID3D12PipelineState> GpuDeviceDX12::CreateGraphicsPSO(D3D12_GRAPHICS_PIPE
 
 void GpuDeviceDX12::OpenCommandList(Gfx::Commandlist handle)
 {
-	ID3D12GraphicsCommandList* cmd_list = HandleToCommandList(handle);
-	FrameResource* frame_resource = GetFrameResources();
-	frame_resource->OpenCommandList(cmd_list);
+	ID3D12GraphicsCommandList* cmdlist = HandleToCommandList(handle);
+	FrameResource* frame = GetFrameResources();
+	frame->OpenCommandList(cmdlist);
+
+	SetupGfxCommandList(cmdlist);
+}
+
+void GpuDeviceDX12::SetupGfxCommandList(ID3D12GraphicsCommandList* cmdlist)
+{
+	FrameResource* frame = GetFrameResources();
+
+	ID3D12DescriptorHeap* heaps[] =
+	{
+		frame->resource_descriptors_gpu.GetGpuHeap(),
+		frame->sampler_descriptors_gpu.GetGpuHeap()
+	};
+
+	cmdlist->SetDescriptorHeaps(ARRAY_SIZE(heaps), heaps);
+	cmdlist->SetGraphicsRootSignature(m_graphics_root_sig.Get());
+	cmdlist->SetComputeRootSignature(m_compute_root_sig.Get());
+
+	D3D12_VIEWPORT viewport = GetScreenViewport();
+	D3D12_RECT scissorRect = GetScissorRect();
+	cmdlist->RSSetViewports(1, &viewport);
+	cmdlist->RSSetScissorRects(1, &scissorRect);
+
+	CD3DX12_CPU_DESCRIPTOR_HANDLE rtvDescriptor = GetRenderTargetView();
+	CD3DX12_CPU_DESCRIPTOR_HANDLE dsvDescriptor = GetDepthStencilView();
+
+	cmdlist->OMSetRenderTargets(1, &rtvDescriptor, FALSE, &dsvDescriptor);
 }
 
 u64 GpuDeviceDX12::CloseAndSubmitCommandList(Gfx::Commandlist handle)
@@ -2052,6 +2100,13 @@ void GpuDeviceDX12::destroyFrameResource()
 	{
 		m_frame_resource[i].Destroy();
 	}
+}
+
+void GpuDeviceDX12::UpdateConstantBindings(ID3D12GraphicsCommandList* cmd_list)
+{
+	FrameResource* frame = GetFrameResources();
+	frame->resource_descriptors_gpu.Update(GetD3DDevice(), cmd_list);
+	frame->sampler_descriptors_gpu.Update(GetD3DDevice(), cmd_list);
 }
 
 GpuBuffer GpuDeviceDX12::CreateBuffer(ID3D12GraphicsCommandList* cmd_list, GpuBufferDesc const& desc, void* initial_data, wchar_t* name)
@@ -2184,6 +2239,46 @@ GpuBuffer GpuDeviceDX12::CreateBuffer(ID3D12GraphicsCommandList* cmd_list, GpuBu
 	return buffer;
 }
 
+void GpuDeviceDX12::UpdateBuffer(ID3D12GraphicsCommandList* cmd_list, GpuBuffer const* buffer, void* data, u32 size_bytes)
+{
+	u64 alignment = 0;
+	if (buffer->desc.bind_flags & BindFlags::ConstantBuffer)
+	{
+		alignment = D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT;
+	}
+	else
+	{
+		alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+	}
+
+	ResourceState::Enum state_before = ResourceState::Common;
+	ResourceState::Enum state_after = ResourceState::Copy_Dest;
+
+	if (buffer->desc.bind_flags & BindFlags::ConstantBuffer || buffer->desc.bind_flags & BindFlags::VertexBuffer)
+	{
+		state_before = ResourceState::Vertex_And_Constant_Buffer;
+	}
+	else if (buffer->desc.bind_flags & BindFlags::IndexBuffer)
+	{
+		state_before = ResourceState::Index_Buffer;
+	}
+
+	TransitionBarrier(buffer->resource, cmd_list, state_before, state_after);
+
+	FrameResource* frame = GetFrameResources();
+	u8* upload_memory = frame->transient_upload_buffers.Allocate(size_bytes, alignment);
+	memcpy(upload_memory, data, size_bytes);
+	cmd_list->CopyBufferRegion(
+		buffer->resource,
+		0,
+		frame->transient_upload_buffers.GetRootBuffer(),
+		frame->transient_upload_buffers.CalculateOffset(upload_memory),
+		size_bytes
+	);
+
+	TransitionBarrier(buffer->resource, cmd_list, state_after, state_before);
+}
+
 namespace Gfx
 {
 	static GpuDeviceDX12* g_gpu_device = nullptr;
@@ -2201,6 +2296,7 @@ namespace Gfx
 	{
 		ASSERT(g_gpu_device != nullptr);
 
+		g_pso_cache->Destroy();
 		delete g_pso_cache;
 
 		g_gpu_device->Flush();
@@ -2346,8 +2442,10 @@ namespace Gfx
 	GraphicsPSO CreateGraphicsPSO(D3D12_GRAPHICS_PIPELINE_STATE_DESC* desc)
 	{
 		GraphicsPSO pso;
-		pso.pso = g_gpu_device->CreateGraphicsPSO(desc);
+		pso.pso = g_gpu_device->CreateGraphicsPSO(desc).Detach();
 		pso.desc = *desc;
+
+		return pso;
 	}
 
 	void BindPSO(Commandlist cmd_list, BasicPSO::Enum basicPSOType)
@@ -2376,7 +2474,7 @@ namespace Gfx
 		ID3D12GraphicsCommandList* command_list = g_gpu_device->HandleToCommandList(cmd_list);
 		GraphicsPSO const* pso = g_pso_cache->GetPSO(pso_handle);
 
-		command_list->SetPipelineState(pso->pso.Get());
+		command_list->SetPipelineState(pso->pso);
 		command_list->IASetPrimitiveTopology(ConvertToPrimitiveTopology(pso->desc.PrimitiveTopologyType));
 	}
 
@@ -2442,12 +2540,27 @@ namespace Gfx
 		return buffer;
 	}
 
-	void DrawMesh(Mesh const* mesh, Commandlist cmd_list_handle)
+	void UpdateBuffer(Commandlist cmd_list, GpuBuffer const* buffer, void* data, u32 size_bytes)
+	{
+		ASSERT_F(buffer->desc.usage != BufferUsage::Immutable, "Cannot update immutable buffer!");
+		ASSERT_F(buffer->desc.sizes_bytes >= size_bytes, "Tried write data larger than buffer size!");
+
+		size_bytes = min(size_bytes, buffer->desc.sizes_bytes);
+
+		ID3D12GraphicsCommandList* command_list = g_gpu_device->HandleToCommandList(cmd_list);
+		g_gpu_device->UpdateBuffer(command_list, buffer, data, size_bytes);
+	}
+
+	void DrawMesh(Commandlist cmd_list_handle, Mesh const* mesh)
 	{
 		BindVertexBuffer(cmd_list_handle, &mesh->vertex_buffer_gpu, 0, 0);
 		BindIndexBuffer(cmd_list_handle, &mesh->index_buffer_gpu, 0);
 
 		ID3D12GraphicsCommandList* command_list = g_gpu_device->HandleToCommandList(cmd_list_handle);
+		
+		// TODO(): can we hold off on this?
+		g_gpu_device->UpdateConstantBindings(command_list);
+		
 		for (SubMesh const& submesh : mesh->submeshes)
 		{
 			command_list->DrawIndexedInstanced(submesh.num_indices, 1, submesh.first_index_location, submesh.base_vertex_location, 0);

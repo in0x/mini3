@@ -44,7 +44,6 @@ namespace Gfx
 	void TransitionBarrier(ID3D12Resource* resources, Commandlist cmd_list, ResourceState::Enum state_before, ResourceState::Enum state_after);
 	void TransitionBarriers(ID3D12Resource** resources, u8 numBarriers, Commandlist cmd_list, ResourceState::Enum state_before, ResourceState::Enum state_after);
 
-
 	void CompileBasicPSOs();
 	GraphicsPSO CreateGraphicsPSO(D3D12_GRAPHICS_PIPELINE_STATE_DESC* desc);
 	void BindPSO(Commandlist cmd_list, BasicPSO::Enum basicPSOType);
@@ -54,6 +53,7 @@ namespace Gfx
 	GpuBuffer CreateIndexBuffer(Commandlist cmd_list, void* index_data, u32 index_bytes);
 
 	GpuBuffer CreateBuffer(Commandlist cmd_list, GpuBufferDesc const& desc, wchar_t* name, void* initial_data = nullptr);
+	void UpdateBuffer(Commandlist cmd_list, GpuBuffer const* buffer, void* data, u32 size_bytes);
 
 	void BindConstantBuffer(GpuBuffer const* constant_buffer, ShaderStage::Enum stage, u8 slot);
 
@@ -61,5 +61,5 @@ namespace Gfx
 	void BindVertexBuffers(Commandlist cmd_list, GpuBuffer const** vertex_buffers, u8 slot, u8 count, u32 const* offsets);
 	void BindIndexBuffer(Commandlist cmd_list, GpuBuffer const* index_buffer, u32 offset);
 
-	void DrawMesh(Mesh const* mesh, Commandlist cmd_list);
+	void DrawMesh(Commandlist cmd_list, Mesh const* mesh);
 }

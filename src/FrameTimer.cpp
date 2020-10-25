@@ -82,7 +82,6 @@ f32 GetDeltaTimeS(FrameTimer& timer)
 
 f32 GetTotalTimeS(FrameTimer& timer)
 {
-
 	if (timer.m_bIsStopped)
 	{
 		return (timer.m_lastStopTime - timer.m_timeSpentPaused - timer.m_startedTime) * timer.m_secondsPerClock;

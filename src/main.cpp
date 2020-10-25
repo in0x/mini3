@@ -39,6 +39,13 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR lpCmdLine, INT nC
 	app.SetNativeHandle(window.m_main_window_handle);
 	app.SetMessageQueue(&window.m_msg_queue);
 
+	char cwd_buffer[MAX_PATH];
+	GetCurrentDirectory(MAX_PATH, cwd_buffer);
+	LOG(Log::Win32, "Program working directory: %s", cwd_buffer);
+
+	// TODO(): Get this from a cvar
+	SetCurrentDirectory("C:\\Users\\Philipp\\Documents\\work\\mini3");
+
 	// We run the app on the "App" thread to avoid blocking during message pump.
 	std::thread appthread(AppthreadMain, &app);
 
