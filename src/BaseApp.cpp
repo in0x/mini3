@@ -2,6 +2,7 @@
 
 BaseApp::BaseApp()
 	: m_timer()
+	, m_window_cfg(nullptr)
 	, m_msg_queue(nullptr)
 	, m_native_handle(nullptr)
 	, m_b_is_paused(false)
@@ -21,6 +22,11 @@ void* BaseApp::GetNativeHandle()
 void BaseApp::SetMessageQueue(IMessageQueueConsumer* queue)
 {
 	m_msg_queue = queue;
+}
+
+void BaseApp::SetWindowCfg(WindowConfig const* window_cfg)
+{
+	m_window_cfg = window_cfg;
 }
 
 void BaseApp::Init()

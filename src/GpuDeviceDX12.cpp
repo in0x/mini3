@@ -385,7 +385,7 @@ private:
 class GpuDeviceDX12
 {
 public:
-	void Init(void* windowHandle, u32 initFlags);
+	void Init(void* windowHandle, u32 output_width, u32 output_height, u32 initFlags);
 	void Destroy();
 	bool IsTearingAllowed();
 
@@ -1161,7 +1161,6 @@ void GpuDeviceDX12::BeginPresent()
 void GpuDeviceDX12::EndPresent()
 {
 	ComPtr<IDXGISwapChain3> swapchain = GetSwapChain();
-	ID3D12Device* device = GetD3DDevice();
 
 	FrameResource* frame = GetFrameResources();
 	FullFrameCommandList* present_cmds = frame->GetPresentCommandlist();
@@ -1303,7 +1302,7 @@ ComPtr<IDXGIAdapter1> getFirstAvailableHardwareAdapter(ComPtr<IDXGIFactory4> dxg
 	return adapter;
 }
 
-void GpuDeviceDX12::Init(void* windowHandle, u32 initFlags)
+void GpuDeviceDX12::Init(void* windowHandle, u32 output_width, u32 output_height, u32 initFlags)
 {
 #ifdef _DEBUG
 	const bool bEnableDebugLayer = initFlags & InitFlags::Enable_Debug_Layer;
@@ -1325,7 +1324,7 @@ void GpuDeviceDX12::Init(void* windowHandle, u32 initFlags)
 	m_depthbuffer_format = DXGI_FORMAT_D24_UNORM_S8_UINT;
 
 	m_dxgi_factory_flags = 0;
-	m_output_size = { 0, 0, 800, 600 }; // TODO(): drive this from window config
+	m_output_size = { 0, 0, (long)output_width, (long)output_height};
 	m_color_space = DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709;
 
 	if (bEnableDebugLayer)
@@ -2284,11 +2283,11 @@ namespace Gfx
 	static GpuDeviceDX12* g_gpu_device = nullptr;
 	static PSOCache* g_pso_cache = nullptr;
 
-	void CreateGpuDevice(void* main_window_handle, u32 flags)
+	void CreateGpuDevice(void* main_window_handle, u32 output_width, u32 output_height, u32 flags)
 	{
 		ASSERT(g_gpu_device == nullptr);
 		g_gpu_device = new GpuDeviceDX12();
-		g_gpu_device->Init(main_window_handle, flags);
+		g_gpu_device->Init(main_window_handle, output_width, output_height, flags);
 		g_pso_cache = new PSOCache();
 	}
 

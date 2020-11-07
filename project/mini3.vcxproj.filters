@@ -28,6 +28,7 @@
     <ClInclude Include="..\src\GpuDeviceDX12.h" />
     <ClInclude Include="..\src\BasicPSOs.h" />
     <ClInclude Include="..\src\GfxTypes.h" />
+    <ClInclude Include="..\src\WindowConfig.h" />
   </ItemGroup>
   <ItemGroup>
     <Filter Include="shaders">

@@ -1,6 +1,7 @@
 #include "MiniApp.h"
 
 #include "GpuDeviceDX12.h"
+#include "WindowConfig.h"
 #include "InputMessageQueue.h"
 #include "GeoUtils.h"
 
@@ -9,7 +10,7 @@ void MiniApp::Init()
 	__super::Init();
 
 	Gfx::RegisterCommandProducerThread();
-	Gfx::CreateGpuDevice(GetNativeHandle(), Gfx::InitFlags::Enable_Debug_Layer | Gfx::InitFlags::Allow_Tearing);
+	Gfx::CreateGpuDevice(GetNativeHandle(), m_window_cfg->width, m_window_cfg->height,  Gfx::InitFlags::Enable_Debug_Layer | Gfx::InitFlags::Allow_Tearing);
 	
 	GeoUtils::CubeGeometry cube;
 	GeoUtils::CreateBox(1.5f, 1.5f, 1.5f, &cube);
@@ -98,7 +99,7 @@ bool MiniApp::Update()
 		//m_world = Math::MatrixMul(rotation, translate);
 		//m_world = Math::MatrixMul(translate, Math::MatrixMul(rotation, scale));
 		//m_world = Math::MatrixMul(scale, translate);
-		DirectX::XMStoreFloat4x4(&m_world, DirectX::XMMatrixIdentity());
+		DirectX::XMStoreFloat4x4(&m_world, DirectX::XMMatrixIdentity() * (DirectX::XMMatrixRotationY(angle) + DirectX::XMMatrixRotationX(angle)));
 	}
 
 	// Calc view matrix

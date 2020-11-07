@@ -16,7 +16,7 @@ namespace Gfx
 	};
 
 	// Call these once from the main render thread.
-	void CreateGpuDevice(void* main_window_handle, u32 flags);
+	void CreateGpuDevice(void* main_window_handle, u32 output_width, u32 output_height, u32 flags);
 	void DestroyGpuDevice();
 	void RegisterCommandProducerThread();
 	void BeginPresent();

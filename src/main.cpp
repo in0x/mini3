@@ -2,6 +2,7 @@
 
 #include "Win32.h"
 #include "Win32Window.h"
+#include "WindowConfig.h"
 #include "MiniApp.h"
 
 void AppthreadMain(BaseApp* app)
@@ -38,6 +39,7 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR lpCmdLine, INT nC
 
 	app.SetNativeHandle(window.m_main_window_handle);
 	app.SetMessageQueue(&window.m_msg_queue);
+	app.SetWindowCfg(&config);
 
 	char cwd_buffer[MAX_PATH];
 	GetCurrentDirectory(MAX_PATH, cwd_buffer);

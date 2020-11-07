@@ -2,6 +2,7 @@
 #include "Core.h"
 #include "BaseApp.h"
 #include "Win32.h"
+#include "WindowConfig.h"
 
 static bool IsWindowClassValid(ATOM classHandle)
 {

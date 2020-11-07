@@ -3,18 +3,8 @@
 #include "Core.h"
 #include "FrameTimer.h"
 
-struct WindowConfig
-{
-	u32 width;
-	u32 height;
-	u32 left;
-	u32 top;
-	const char* title;
-	bool b_fullscreen;
-	bool b_auto_show;
-};
-
 class IMessageQueueConsumer;
+struct WindowConfig;
 
 class BaseApp
 {
@@ -30,11 +20,14 @@ public:
 
 	void SetMessageQueue(IMessageQueueConsumer* queue);
 
+	void SetWindowCfg(WindowConfig const* window_cfg);
+
 	// Returns whether the stats where refreshed since the last read.
 	bool GetStats(f32& out_avg_fps, f32& out_avg_ms_per_frame);
 
 protected:
 	FrameTimer m_timer;
+	WindowConfig const* m_window_cfg;
 	IMessageQueueConsumer* m_msg_queue;
 
 private:

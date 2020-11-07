@@ -182,6 +182,7 @@
     <ClInclude Include="..\src\Win32Window.h" />
     <ClInclude Include="..\src\BaseApp.h" />
     <ClInclude Include="..\src\Win32.h" />
+    <ClInclude Include="..\src\WindowConfig.h" />
   </ItemGroup>
   <ItemGroup>
     <FxCompile Include="..\src\shaders\VertexColor.hlsl">
