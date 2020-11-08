@@ -1,20 +1,51 @@
 #pragma once
 
+#include "Core.h"
 #include <math.h>
 #include <DirectXMath.h>
 #include <DirectXPackedVector.h>
-
-typedef DirectX::XMMATRIX simdMatrix;
-typedef DirectX::XMFLOAT4X3 mtx4x3;
-typedef DirectX::XMFLOAT4X4 mtx4x4;
-typedef DirectX::XMFLOAT2 vec2;
-typedef DirectX::XMFLOAT3 vec3;
-typedef DirectX::XMFLOAT4 vec4;
 
 #define MM_INLINE inline
 #define MM_FORCEINL __forceinline
 #define MM_VECTORCALL __vectorcall
 #define MM_DEFAULT_INL MM_INLINE
+
+typedef DirectX::XMMATRIX simd_mtx;
+
+struct mtx4x3 : public DirectX::XMFLOAT4X3 {};
+
+struct mtx4x4 : public DirectX::XMFLOAT4X4 
+{
+	MM_DEFAULT_INL mtx4x4& MM_VECTORCALL operator*=(mtx4x4 const& other)
+	{
+		using namespace DirectX;
+
+		simd_mtx simd_lhs = XMLoadFloat4x4(this);
+		simd_mtx simd_rhs = XMLoadFloat4x4(&other);
+		simd_mtx mul = XMMatrixMultiply(simd_lhs, simd_rhs);
+		
+		XMStoreFloat4x4(this, mul);
+		return *this;
+	}
+};
+
+struct vec2 : public DirectX::XMFLOAT2 
+{
+	vec2() = default;
+	vec2(f32 x, f32 y) : DirectX::XMFLOAT2(x, y) {}
+};
+
+struct vec3 : public DirectX::XMFLOAT3 
+{
+	vec3() = default;
+	vec3(f32 x, f32 y, f32 z) : DirectX::XMFLOAT3(x, y, z) {}
+};
+
+struct vec4 : public DirectX::XMFLOAT4 
+{
+	vec4() = default;
+	vec4(f32 x, f32 y, f32 z, f32 w) : DirectX::XMFLOAT4(x, y, z, w) {}
+};
 
 namespace Math
 {
@@ -125,6 +156,14 @@ namespace Math
 		return out_mtx;
 	}
 
+	static MM_DEFAULT_INL mtx4x4 MM_VECTORCALL MatrixIdentity()
+	{
+		mtx4x4 out_mtx;
+		XMStoreFloat4x4(&out_mtx, XMMatrixIdentity());
+
+		return out_mtx;
+	}
+
 	// Returns a vec3 (0,0,0).
 	static MM_DEFAULT_INL vec3 MM_VECTORCALL Vec3Zero()
 	{
@@ -170,4 +209,15 @@ namespace Math
 	{
 		return degree * (Pi / 180.0f);
 	}
+}
+
+static MM_DEFAULT_INL mtx4x4 MM_VECTORCALL operator*(mtx4x4 const& lhs, mtx4x4 const& rhs)
+{
+	simd_mtx simd_lhs = XMLoadFloat4x4(&lhs);
+	simd_mtx simd_rhs = XMLoadFloat4x4(&rhs);
+	simd_mtx mul = XMMatrixMultiply(simd_lhs, simd_rhs);
+
+	mtx4x4 out;
+	XMStoreFloat4x4(&out, mul);
+	return out;
 }

@@ -1,6 +1,7 @@
 #pragma once
 #include "BaseApp.h"
 #include "Math.h"
+
 #include "GpuDeviceDX12.h"
 
 class MiniApp : public BaseApp

@@ -26,6 +26,8 @@ namespace Gfx
 				flags |= D3DCOMPILE_SKIP_OPTIMIZATION;
 			}
 
+			flags |= D3DCOMPILE_PACK_MATRIX_ROW_MAJOR;
+
 			return flags;
 		}
 	};

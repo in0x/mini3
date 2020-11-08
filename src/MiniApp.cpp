@@ -43,9 +43,6 @@ void MiniApp::Init()
 
 	Gfx::CompileBasicPSOs();
 	Gfx::WaitForFenceValueCpuBlocking(upload_fence);
-
-	// TODO(pw): Finished implementing geomtry upload. Next we need to write shaders and PSOs so we can start binding
-	// them and render the geometry. We also need fill out the data that goes into our camera constant buffer.
 }
 
 void MiniApp::render()
@@ -55,18 +52,9 @@ void MiniApp::render()
 	Gfx::BindPSO(m_draw_cmds, Gfx::BasicPSO::VertexColorSolid);
 	Gfx::BindConstantBuffer(&m_camera_constants, Gfx::ShaderStage::Vertex, 0);
 
-	//mtx4x4 mvp = Math::MatrixMul(m_proj, Math::MatrixMul(m_view, m_world));
-	//mtx4x4 mvp = Math::MatrixMul(Math::MatrixMul(m_world, m_view), m_proj);
-	//mvp = Math::MatrixTranspose(mvp);
-
 	PerObjectData cb_data;
-	//cb_data.model_view_proj = mvp;
-	cb_data.model = Math::MatrixTranspose(m_world);
-	cb_data.view_proj = Math::MatrixTranspose(Math::MatrixMul(m_view, m_proj));
-
-	//cb_data.model = (m_world);
-	//cb_data.view =  (m_view);
-	//cb_data.proj =  (m_proj);
+	cb_data.model = m_world;
+	cb_data.view_proj = m_view * m_proj;
 
 	// TODO(): Surely I should be able to record this into upload_cmds, then submit and make draw_cmds wait on the fence.
 	Gfx::UpdateBuffer(m_draw_cmds, &m_camera_constants, &cb_data, sizeof(cb_data));
@@ -93,18 +81,15 @@ bool MiniApp::Update()
 	{
 		f32 angle = sin(total_time);
 
-		mtx4x4 scale = Math::MatrixScale(1.0f, 1.0f, 1.0f);
-		mtx4x4 translate = Math::MatrixTranslation(0.0f, 0.f, 10.0f);
+		mtx4x4 translate = Math::MatrixTranslation(0.0f, 0.0f, 1.0f);
 		mtx4x4 rotation = Math::MatrixRotationY(angle);
-		//m_world = Math::MatrixMul(rotation, translate);
-		//m_world = Math::MatrixMul(translate, Math::MatrixMul(rotation, scale));
-		//m_world = Math::MatrixMul(scale, translate);
-		DirectX::XMStoreFloat4x4(&m_world, DirectX::XMMatrixIdentity() * (DirectX::XMMatrixRotationY(angle) + DirectX::XMMatrixRotationX(angle)));
+		
+		m_world = Math::MatrixRotationY(angle) * Math::MatrixRotationX(angle) * translate;
 	}
 
 	// Calc view matrix
 	{
-		vec3 eye_pos = vec3(0.0f, 0.0f, -10.0f);
+		vec3 eye_pos = vec3(0.0f, 0.0f, -5.0f);
 		vec3 look_at = vec3(0.0f, 0.0f, 0.0f);
 		vec3 up = Math::UpDir();
 
@@ -113,16 +98,10 @@ bool MiniApp::Update()
 
 	// Calc proj mat
 	{
-		// TODO(): pass this in via window config (and update on resize)
-		f32 aspect_ratio = 800.0f / 600.0f;
+		f32 aspect_ratio = (f32)m_window_cfg->width / (f32)m_window_cfg->height;
 		f32 fov_y = Math::DegreeToRad(70.0f);
 
 		m_proj = Math::MatrixPerspectiveFovLH(fov_y, aspect_ratio, 0.01f, 1000.0f);
-
-		//m_proj = Math::MatrixPerspectiveFovLH(fov_y * aspect_ratio * 0.01f, aspect_ratio * 0.01f, 0.01f, 1000.0f);
-
-		//DirectX::XMMATRIX persp = DirectX::XMMatrixPerspectiveLH(800.f, 600.f, 0.01f, 1000.0f);
-		//DirectX::XMStoreFloat4x4(&m_proj, persp);
 	}
 
 	Gfx::BeginPresent();

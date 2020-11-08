@@ -159,6 +159,7 @@
     <ClCompile Include="..\src\Core.cpp" />
     <ClCompile Include="..\src\GpuDeviceDX12.cpp" />
     <ClCompile Include="..\src\FrameTimer.cpp" />
+    <ClCompile Include="..\src\Math.cpp" />
     <ClCompile Include="..\src\MiniApp.cpp" />
     <ClCompile Include="..\src\PSO.cpp" />
     <ClCompile Include="..\src\Win32Window.cpp" />

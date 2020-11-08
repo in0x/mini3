@@ -24,8 +24,8 @@ VertexOut vs_main(VertexIn vsIn)
 {
 	VertexOut vsOut;
 
-	float4 pos_ws = mul(float4(vsIn.pos_local, 1.0f), g_model);
-	float4 pos_sp = mul(pos_ws, g_view_proj);
+	float4x4 mvp = mul(g_model, g_view_proj);
+	float4 pos_sp = mul(float4(vsIn.pos_local, 1.0f), mvp);
 
 	vsOut.pos_sp = pos_sp;
 	vsOut.color = float4(1.0f, 0.0f, 0.0f, 1.0f);

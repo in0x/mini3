@@ -10,6 +10,7 @@
     <ClCompile Include="..\src\Core.cpp" />
     <ClCompile Include="..\src\GpuDeviceDX12.cpp" />
     <ClCompile Include="..\src\PSO.cpp" />
+    <ClCompile Include="..\src\Math.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\src\d3dx12.h" />
@@ -21,7 +22,6 @@
     <ClInclude Include="..\src\InputMessageQueue.h" />
     <ClInclude Include="..\src\Array.h" />
     <ClInclude Include="..\src\FrameTimer.h" />
-    <ClInclude Include="..\src\Math.h" />
     <ClInclude Include="..\src\GeoUtils.h" />
     <ClInclude Include="..\src\MemUtils.h" />
     <ClInclude Include="..\src\PSO.h" />
@@ -29,6 +29,7 @@
     <ClInclude Include="..\src\BasicPSOs.h" />
     <ClInclude Include="..\src\GfxTypes.h" />
     <ClInclude Include="..\src\WindowConfig.h" />
+    <ClInclude Include="..\src\Math.h" />
   </ItemGroup>
   <ItemGroup>
     <Filter Include="shaders">
