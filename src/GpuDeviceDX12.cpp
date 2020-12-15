@@ -21,6 +21,8 @@
 
 using Microsoft::WRL::ComPtr;
 
+static constexpr size_t NUM_CMD_RECORDING_THREADS = 4;
+
 static constexpr size_t GPU_SAMPLER_HEAP_COUNT = 16;
 static constexpr size_t GPU_RESOURCE_HEAP_CBV_COUNT = 12;
 static constexpr size_t GPU_RESOURCE_HEAP_SRV_COUNT = 64;
@@ -232,9 +234,9 @@ public:
 	bool IsCommandListOpenOnThisThread(ID3D12GraphicsCommandList* cmdlist);
 
 private:
-	ID3D12GraphicsCommandList* m_active_gfx_lists[NUM_MAX_THREADS];
-	ID3D12GraphicsCommandList* m_active_copy_lists[NUM_MAX_THREADS];
-	ID3D12GraphicsCommandList* m_active_compute_lists[NUM_MAX_THREADS];
+	ID3D12GraphicsCommandList* m_active_gfx_lists[NUM_CMD_RECORDING_THREADS];
+	ID3D12GraphicsCommandList* m_active_copy_lists[NUM_CMD_RECORDING_THREADS];
+	ID3D12GraphicsCommandList* m_active_compute_lists[NUM_CMD_RECORDING_THREADS];
 };
 
 // TODO: Expose this so we can use it for other "context-like" situations.
@@ -310,11 +312,12 @@ public:
 
 	void Create(ID3D12Device* device, u32 frame_index, ComPtr<ID3D12Resource> render_target)
 	{
+		end_of_frame_fence = 0;
+
 		m_cmd_allocator.Create(device);
 
 		wchar_t cmd_list_name[64];
 		swprintf_s(cmd_list_name, L"cmd_list_frame_%u", frame_index);
-		command_list = CreateCommandList(D3D12_COMMAND_LIST_TYPE_DIRECT, cmd_list_name);
 
 		present_cmdlist.Create(device, D3D12_COMMAND_LIST_TYPE_DIRECT, L"present_cmds");
 
@@ -371,15 +374,10 @@ public:
 		return m_cmd_allocator.GetAllocator(type);
 	}
 
-	//inline Gfx::Commandlist GetCommandlist() { return command_list; }
-
 private:
 	ComPtr<ID3D12Resource> m_render_target;
 	CommandAllocator m_cmd_allocator;
 	CommandListManager m_cmd_list_manager;
-	Gfx::Commandlist command_list;
-
-	std::mutex submit_lock;
 };
 
 class GpuDeviceDX12
@@ -437,8 +435,6 @@ private:
 	void updateColorSpace();
 	void createDepthBuffer(u32 width, u32 height);
 	void UpdateViewportScissorRect(u32 width, u32 height);
-
-	void MoveToNextFrame();
 
 	CD3DX12_CPU_DESCRIPTOR_HANDLE GetRenderTargetView() const;
 	CD3DX12_CPU_DESCRIPTOR_HANDLE GetDepthStencilView() const;
@@ -762,7 +758,7 @@ namespace Gfx
 {
 	void RegisterCommandProducerThread()
 	{
-		ASSERT(g_cmd_threads_registered.load() < NUM_MAX_THREADS);
+		ASSERT(g_cmd_threads_registered.load() < NUM_CMD_RECORDING_THREADS);
 		tls_cmd_allocator_idx = g_cmd_threads_registered++;
 	}
 }
@@ -780,13 +776,13 @@ inline s32 GetCmdProducerThreadId()
 
 void CommandAllocator::Create(ID3D12Device* device)
 {
-	m_gfx_allocators = new ID3D12CommandAllocator*[NUM_MAX_THREADS];
-	m_copy_allocators = new ID3D12CommandAllocator*[NUM_MAX_THREADS];
-	m_compute_allocators = new ID3D12CommandAllocator*[NUM_MAX_THREADS];
+	m_gfx_allocators = new ID3D12CommandAllocator*[NUM_CMD_RECORDING_THREADS];
+	m_copy_allocators = new ID3D12CommandAllocator*[NUM_CMD_RECORDING_THREADS];
+	m_compute_allocators = new ID3D12CommandAllocator*[NUM_CMD_RECORDING_THREADS];
 
 	wchar_t name[64] = {};
 
-	for (u32 thread_id = 0; thread_id < NUM_MAX_THREADS; ++thread_id)
+	for (u32 thread_id = 0; thread_id < NUM_CMD_RECORDING_THREADS; ++thread_id)
 	{
 		VERIFY_HR(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&m_gfx_allocators[thread_id])));
 		VERIFY_HR(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_COPY, IID_PPV_ARGS(&m_copy_allocators[thread_id])));
@@ -805,7 +801,7 @@ void CommandAllocator::Create(ID3D12Device* device)
 
 void CommandAllocator::Destroy()
 {
-	for (u32 thread_id = 0; thread_id < NUM_MAX_THREADS; ++thread_id)
+	for (u32 thread_id = 0; thread_id < NUM_CMD_RECORDING_THREADS; ++thread_id)
 	{
 		m_gfx_allocators[thread_id]->Release();
 		m_copy_allocators[thread_id]->Release();
@@ -850,9 +846,9 @@ ID3D12CommandAllocator* CommandAllocator::GetAllocator(D3D12_COMMAND_LIST_TYPE t
 
 CommandListManager::CommandListManager()
 {
-	memzero(m_active_gfx_lists, sizeof(ID3D12GraphicsCommandList*) * NUM_MAX_THREADS);
-	memzero(m_active_copy_lists, sizeof(ID3D12GraphicsCommandList*) * NUM_MAX_THREADS);
-	memzero(m_active_compute_lists, sizeof(ID3D12GraphicsCommandList*) * NUM_MAX_THREADS);
+	memzero(m_active_gfx_lists, sizeof(ID3D12GraphicsCommandList*) * NUM_CMD_RECORDING_THREADS);
+	memzero(m_active_copy_lists, sizeof(ID3D12GraphicsCommandList*) * NUM_CMD_RECORDING_THREADS);
+	memzero(m_active_compute_lists, sizeof(ID3D12GraphicsCommandList*) * NUM_CMD_RECORDING_THREADS);
 }
 
 ID3D12GraphicsCommandList** CommandListManager::GetListSetByType(D3D12_COMMAND_LIST_TYPE type)
@@ -903,7 +899,7 @@ void CommandListManager::CloseCommandList(ID3D12GraphicsCommandList* cmdlist)
 
 bool CommandListManager::AreAllCommandListsClosed()
 {
-	for (u32 i = 0; i < NUM_MAX_THREADS; ++i)
+	for (u32 i = 0; i < NUM_CMD_RECORDING_THREADS; ++i)
 	{
 		if (m_active_gfx_lists[i] != nullptr) return false;
 		if (m_active_copy_lists[i] != nullptr) return false;
@@ -1169,9 +1165,6 @@ void GpuDeviceDX12::EndPresent()
 	present_cmds->Open();
 	SetupGfxCommandList(cmdlist);
 
-	//frame->resource_descriptors_gpu.Update(device, cmdlist);
-	//frame->sampler_descriptors_gpu.Update(device, cmdlist);
-
 	// Transition the render target to the state that allows it to be presented to the display.
 	TransitionBarrier(frame->GetRenderTarget(), cmdlist, ResourceState::Render_Target, ResourceState::Present);
 
@@ -1179,49 +1172,46 @@ void GpuDeviceDX12::EndPresent()
 	present_cmds->Close();
 	m_cmd_queue_mng.ExecuteCommandList(cmdlist);
 
-	HRESULT hr = S_OK;
-	if (IsTearingAllowed())
-	{
-		// Recommended to always use tearing if supported when using a sync interval of 0.
-		// Note this will fail if in true 'fullscreen' mode.
-		hr = swapchain->Present(0, DXGI_PRESENT_ALLOW_TEARING);
-	}
-	else
-	{
-		// The first argument instructs DXGI to block until VSync, putting the application
-		// to sleep until the next VSync. This ensures we don't waste any cycles rendering
-		// frames that will never be displayed to the screen.
-		hr = swapchain->Present(1, 0);
-	}
+	u64 const last_frame_end_fence = frame->end_of_frame_fence;
 
 	frame->end_of_frame_fence = m_cmd_queue_mng.GetGraphicsQueue()->Signal();
 
-	// If the device was reset we must completely reinitialize the renderer.
-	if (hr == DXGI_ERROR_DEVICE_REMOVED || hr == DXGI_ERROR_DEVICE_RESET)
+	// If the previous frame has not finished rendering yet, wait until it is ready.
+	if (last_frame_end_fence != 0)
 	{
-		HRESULT removedReason = (hr == DXGI_ERROR_DEVICE_REMOVED) ? GetD3DDevice()->GetDeviceRemovedReason() : hr;
-		ASSERT_FAIL_F("Device Lost on ResizeBuffers: Reason code 0x%08X\n", removedReason);
-		UNUSED(removedReason);
-	}
-	else
-	{
-		ASSERT_HR(hr);
+		m_cmd_queue_mng.WaitForFenceCpuBlocking(last_frame_end_fence);
 	}
 
-	MoveToNextFrame(); // TODO(): shouldnt we be doing this waiting for last frame (not this new one)?
-}
+	{
+		HRESULT hr = S_OK;
+		if (IsTearingAllowed())
+		{
+			// Recommended to always use tearing if supported when using a sync interval of 0.
+			// Note this will fail if in true 'fullscreen' mode.
+			hr = swapchain->Present(0, DXGI_PRESENT_ALLOW_TEARING);
+		}
+		else
+		{
+			// The first argument instructs DXGI to block until VSync, putting the application
+			// to sleep until the next VSync. This ensures we don't waste any cycles rendering
+			// frames that will never be displayed to the screen.
+			hr = swapchain->Present(1, 0);
+		}
 
-void GpuDeviceDX12::Flush()
-{
-	m_cmd_queue_mng.WaitForAllQueuesFinished();
-}
+		// If the device was reset we must completely reinitialize the renderer.
+		if (hr == DXGI_ERROR_DEVICE_REMOVED || hr == DXGI_ERROR_DEVICE_RESET)
+		{
+			HRESULT removedReason = (hr == DXGI_ERROR_DEVICE_REMOVED) ? GetD3DDevice()->GetDeviceRemovedReason() : hr;
+			ASSERT_FAIL_F("Device Lost on ResizeBuffers: Reason code 0x%08X\n", removedReason);
+			UNUSED(removedReason);
+		}
+		else
+		{
+			ASSERT_HR(hr);
+		}
+	}
 
-void GpuDeviceDX12::MoveToNextFrame()
-{
 	m_frame_index = m_swap_chain->GetCurrentBackBufferIndex();
-	
-	// If this frame has not finished rendering yet, wait until it is ready.
-	m_cmd_queue_mng.GetGraphicsQueue()->WaitForFenceCpuBlocking(GetFrameResources()->end_of_frame_fence);
 
 	if (!m_dxgi_factory->IsCurrent())
 	{
@@ -1229,6 +1219,11 @@ void GpuDeviceDX12::MoveToNextFrame()
 		HRESULT hr = CreateDXGIFactory2(m_dxgi_factory_flags, IID_PPV_ARGS(m_dxgi_factory.ReleaseAndGetAddressOf()));
 		ASSERT_HR(hr);
 	}
+}
+
+void GpuDeviceDX12::Flush()
+{
+	m_cmd_queue_mng.WaitForAllQueuesFinished();
 }
 
 CD3DX12_CPU_DESCRIPTOR_HANDLE GpuDeviceDX12::GetRenderTargetView() const

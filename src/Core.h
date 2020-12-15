@@ -29,8 +29,6 @@ thread_local static char g_debugMsgBuffer[MAX_DEBUG_MSG_SIZE];
 
 using ScopedLock = std::lock_guard<std::mutex>;
 
-constexpr size_t NUM_MAX_THREADS = 8;
-
 static constexpr size_t BytesToKiloBytes(size_t bytes)
 {
 	return bytes / (1024Ui64);
