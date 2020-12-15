@@ -9,20 +9,20 @@ static bool IsWindowClassValid(ATOM classHandle)
 	return classHandle != 0;
 }
 
-static ATOM RegisterWindowClass(char const* className, WNDPROC eventCb)
+static ATOM RegisterWindowClass(char const* class_name, WNDPROC event_cb)
 {
 	WNDCLASSEX windowClass = {};
 	windowClass.cbSize = sizeof(WNDCLASSEX);
 	windowClass.style = CS_HREDRAW | CS_VREDRAW | CS_OWNDC;
-	windowClass.lpfnWndProc = eventCb;
+	windowClass.lpfnWndProc = event_cb;
 	windowClass.hInstance = GetModuleHandle(nullptr);
-	windowClass.lpszClassName = className;
+	windowClass.lpszClassName = class_name;
 
 	ATOM classHandle = RegisterClassEx(&windowClass);
 
 	if (!IsWindowClassValid(classHandle))
 	{
-		LOG(Log::Win32, "Failed to register window class type %s!\n", className);
+		LOG(Log::Win32, "Failed to register window class type %s!\n", class_name);
 		LogLastWindowsError();
 	}
 
@@ -36,11 +36,11 @@ static bool UnregisterWindowClass(char const* className)
 
 static LRESULT CALLBACK OnMainWindowEvent(HWND handle, UINT message, WPARAM wParam, LPARAM lParam);
 
-static char const * const s_mainWindowClassName = "mini3::Win32Window";
+static char const * const s_main_window_class_name = "mini3::Win32Window";
 
 bool Win32Window::Init(WindowConfig const& config)
 {
-	RegisterWindowClass(s_mainWindowClassName, &OnMainWindowEvent);
+	RegisterWindowClass(s_main_window_class_name, &OnMainWindowEvent);
 
 	RECT windowRect = {};
 	windowRect.left = config.left;
@@ -77,7 +77,7 @@ bool Win32Window::Init(WindowConfig const& config)
 
 	m_main_window_handle = CreateWindowEx(
 		exWindStyle,
-		s_mainWindowClassName,
+		s_main_window_class_name,
 		config.title,
 		WS_CLIPSIBLINGS | WS_CLIPCHILDREN | windStyle,
 		config.left, config.top,
@@ -126,7 +126,32 @@ bool Win32Window::Run()
 
 void Win32Window::Exit()
 {
-	UnregisterClass(s_mainWindowClassName, GetModuleHandle(nullptr));
+	UnregisterClass(s_main_window_class_name, GetModuleHandle(nullptr));
+}
+
+static KeyCode::Enum MapVKToKeyCode(WPARAM key_code)
+{
+	switch (key_code)
+	{
+	case 0x25:
+		return KeyCode::ARROW_LEFT;
+	case 0x26:
+		return KeyCode::ARROW_UP;
+	case 0x27:
+		return KeyCode::ARROW_RIGHT;
+	case 0x28:
+		return KeyCode::ARROW_DOWN;
+	case 0x41:
+		return KeyCode::A;
+	case 0x44:
+		return KeyCode::D;
+	case 0x53:
+		return KeyCode::S;
+	case 0x57:
+		return KeyCode::W;
+	default:
+		return KeyCode::UNKNOWN;
+	}
 }
 
 static LRESULT CALLBACK OnMainWindowEvent(HWND handle, UINT message, WPARAM wParam, LPARAM lParam)
@@ -158,13 +183,13 @@ static LRESULT CALLBACK OnMainWindowEvent(HWND handle, UINT message, WPARAM wPar
 	
 	case WM_KEYDOWN:
 	{
-		window->m_msg_queue.AddKeyMessage(static_cast<s8>(wParam), true);
+		window->m_msg_queue.AddKeyMessage(MapVKToKeyCode(wParam), true);
 		break;
 	}
 	
 	case WM_KEYUP:
 	{
-		window->m_msg_queue.AddKeyMessage(static_cast<s8>(wParam), false);
+		window->m_msg_queue.AddKeyMessage(MapVKToKeyCode(wParam), false);
 		break;
 	}
 	}

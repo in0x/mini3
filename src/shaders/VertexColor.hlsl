@@ -28,7 +28,7 @@ VertexOut vs_main(VertexIn vsIn)
 	float4 pos_sp = mul(float4(vsIn.pos_local, 1.0f), mvp);
 
 	vsOut.pos_sp = pos_sp;
-	vsOut.color = float4(1.0f, 0.0f, 0.0f, 1.0f);
+	vsOut.color = float4(abs(vsIn.normal), 1.0f);
 
 	return vsOut;
 }

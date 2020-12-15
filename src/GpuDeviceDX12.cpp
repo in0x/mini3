@@ -275,6 +275,7 @@ public:
 
 	void Open()
 	{
+		VERIFY_HR(m_allocator->Reset());
 		VERIFY_HR(m_commandlist->Reset(m_allocator.Get(), nullptr));
 	}
 

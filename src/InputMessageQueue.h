@@ -3,9 +3,26 @@
 #include <mutex>
 #include "Array.h"
 
+struct KeyCode
+{
+	enum Enum
+	{
+		A,
+		D,
+		W,
+		S,
+		ARROW_LEFT,
+		ARROW_UP,
+		ARROW_RIGHT,
+		ARROW_DOWN,
+		UNKNOWN,
+		COUNT
+	};
+};
+
 struct KeyMsg
 {
-	s8 m_key;
+	KeyCode::Enum m_key;
 	bool m_is_key_down;
 };
 
@@ -35,7 +52,7 @@ public:
 	ThreadSafeInputMessageQueue()
 	{}
 	
-	void AddKeyMessage(s8 key, bool is_key_down)
+	void AddKeyMessage(KeyCode::Enum key, bool is_key_down)
 	{
 		ScopedLock lock(m_queue_lock);
 

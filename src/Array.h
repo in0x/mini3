@@ -129,6 +129,12 @@ public:
 		return m_data[index];
 	}
 
+	T const& operator[](u32 index) const
+	{
+		ASSERT(index < m_size);
+		return m_data[index];
+	}
+
 	ConstIterator<T> const begin() const
 	{
 		return ConstIterator<T>( m_data );

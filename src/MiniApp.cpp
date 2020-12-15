@@ -62,6 +62,19 @@ void MiniApp::render()
 	Gfx::SubmitCommandList(m_draw_cmds);
 }
 
+bool IsKeyDown(InputMessages const* msg, KeyCode::Enum key)
+{
+	for (u32 i = msg->m_keys.Size(); i--;)
+	{
+		if (msg->m_keys[i].m_key == key)
+		{
+			return true;
+		}
+	}
+
+	return false;
+}
+
 bool MiniApp::Update()
 {
 	__super::Update();
@@ -74,6 +87,12 @@ bool MiniApp::Update()
 		// and have stopped pumping the window thread.
 		return false;
 	}
+
+	//LOG(Log::Category::Default, "KeyStates:");
+	LOG(Log::Category::Default, "W: %s", IsKeyDown(&input, KeyCode::W) ? "yes" : "no");
+	LOG(Log::Category::Default, "A: %s", IsKeyDown(&input, KeyCode::A) ? "yes" : "no");
+	LOG(Log::Category::Default, "S: %s", IsKeyDown(&input, KeyCode::S) ? "yes" : "no");
+	LOG(Log::Category::Default, "D: %s", IsKeyDown(&input, KeyCode::D) ? "yes" : "no");
 
 	f32 total_time = GetTotalTimeS(m_timer);
 

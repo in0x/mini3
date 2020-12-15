@@ -83,16 +83,12 @@ void DebugPrintf(char const* file, int line, char const* fmt, Log::Category cate
 #ifdef _DEBUG
 #define ASSERT(x) assert(x)
 #define ASSERT_F(x, format, ...) if (!(x)) { LOG(Log::Assert, format, __VA_ARGS__); assert(x); }
-#define ASSERT_HR(hr) assert(SUCCEEDED(hr))
-#define ASSERT_HR_F(hr, format, ...) ASSERT_F(SUCCEEDED(hr), format, __VA_ARGS__)
 #define ASSERT_FAIL() assert(false)
 #define ASSERT_FAIL_F(format, ...) ASSERT_F(false, format, __VA_ARGS__)
 #define DEBUG_CODE(x) x
 #else
 #define ASSERT(x) 
 #define ASSERT_F(x, format, ...)  
-#define ASSERT_HR(hr) UNUSED(hr)
-#define ASSERT_HR_F(hr, format, ...) UNUSED(hr)
 #define ASSERT_FAIL()
 #define ASSERT_FAIL_F(format, ...)
 #define DEBUG_CODE(x)
