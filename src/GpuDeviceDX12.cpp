@@ -132,6 +132,7 @@ public:
 	CommandQueue* GetQueue(D3D12_COMMAND_LIST_TYPE type);
 
 	u64 ExecuteCommandList(ID3D12CommandList* cmd_list);
+	u64 ExecuteCommandLists(ID3D12CommandList** cmd_lists, u32 count);
 
 	bool IsFenceComplete(u64 fence_value);
 	void WaitForFenceCpuBlocking(u64 fence_value);
@@ -230,6 +231,9 @@ private:
 class CommandListManager
 {
 public:
+	enum { MAX_CMD_LISTS = 15 };
+	using CommandListSet = Array<ID3D12GraphicsCommandList*, MAX_CMD_LISTS>;
+
 	void Create(ID3D12Device* device);
 	void Destroy();
 
@@ -239,11 +243,11 @@ public:
 
 	void OpenCommandList(Gfx::Commandlist handle);
 	void CloseCommandList(Gfx::Commandlist handle);
+	CommandListSet CloseCommandLists(Gfx::Commandlist* handles, u32 count);
 
 	ID3D12GraphicsCommandList* GetCmdList(Gfx::Commandlist handle);
 
 private:
-	enum { MAX_CMD_LISTS = 15 };
 	Array<ID3D12GraphicsCommandList*, MAX_CMD_LISTS> m_direct_cmd_lists;
 
 	CommandAllocatorPool* m_allocator_pool;
@@ -290,6 +294,20 @@ void CommandListManager::CloseCommandList(Gfx::Commandlist handle)
 {
 	ID3D12GraphicsCommandList* cmd_list = GetCmdList(handle);
 	VERIFY_HR(cmd_list->Close());
+}
+
+CommandListManager::CommandListSet CommandListManager::CloseCommandLists(Gfx::Commandlist* handles, u32 count)
+{
+	Array<ID3D12GraphicsCommandList*, MAX_CMD_LISTS> cmd_lists;
+	for (u32 i = 0; i < count; ++i)
+	{
+		ID3D12GraphicsCommandList* cmd_list = GetCmdList(handles[i]);
+		VERIFY_HR(cmd_list->Close());
+		
+		cmd_lists.PushBack(cmd_list);
+	}
+
+	return std::move(cmd_lists);
 }
 
 ID3D12GraphicsCommandList* CommandListManager::GetCmdList(Gfx::Commandlist handle)
@@ -446,6 +464,8 @@ public:
 
 	void OpenCommandList(Gfx::Commandlist handle);
 	u64 CloseAndSubmitCommandList(Gfx::Commandlist handle);
+	u64 CloseAndSubmitCommandLists(Gfx::Commandlist* cmd_lists, u32 count);
+
 	void WaitForFenceValueCpuBlocking(u64 fenceValue);
 
 	void SetupGfxCommandList(ID3D12GraphicsCommandList* cmdlist);
@@ -929,6 +949,12 @@ u64 CommandQueueManager::ExecuteCommandList(ID3D12CommandList* cmd_list)
 {
 	CommandQueue* queue = GetQueue(cmd_list->GetType());
 	return queue->ExecuteCommandList(cmd_list);
+}
+
+u64 CommandQueueManager::ExecuteCommandLists(ID3D12CommandList** cmd_lists, u32 count)
+{
+	CommandQueue* queue = GetQueue(cmd_lists[0]->GetType());
+	return queue->ExecuteCommandLists(cmd_lists, count);
 }
 
 bool CommandQueueManager::IsFenceComplete(u64 fence_value)
@@ -1838,6 +1864,13 @@ u64 GpuDeviceDX12::CloseAndSubmitCommandList(Gfx::Commandlist handle)
 	return m_cmd_queue_mng.ExecuteCommandList(cmd_list);
 }
 
+u64 GpuDeviceDX12::CloseAndSubmitCommandLists(Commandlist* cmd_lists, u32 count)
+{
+	CommandListManager::CommandListSet closed_set = m_cmd_lists.CloseCommandLists(cmd_lists, count);
+
+	return m_cmd_queue_mng.ExecuteCommandLists((ID3D12CommandList**)closed_set.Data(), count);
+}
+
 void GpuDeviceDX12::WaitForFenceValueCpuBlocking(u64 fence_value)
 {
 	m_cmd_queue_mng.WaitForFenceCpuBlocking(fence_value);
@@ -2159,6 +2192,11 @@ namespace Gfx
 	u64 SubmitCommandList(Commandlist cmd_list)
 	{
 		return g_gpu_device->CloseAndSubmitCommandList(cmd_list);
+	}
+
+	u64 SubmitCommandLists(Commandlist* cmd_lists, u32 count)
+	{
+		return g_gpu_device->CloseAndSubmitCommandLists(cmd_lists, count);
 	}
 
 	void BindConstantBuffer(GpuBuffer const* constant_buffer, ShaderStage::Enum stage, u8 slot)
