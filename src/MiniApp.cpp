@@ -18,6 +18,7 @@ void MiniApp::Init()
 	Gfx::OpenCommandList(m_upload_cmds);
 
 	m_draw_cmds = Gfx::CreateCommandList(D3D12_COMMAND_LIST_TYPE_DIRECT, L"draw_cmds");
+	m_present_cmds = Gfx::CreateCommandList(D3D12_COMMAND_LIST_TYPE_DIRECT, L"present_cmds");
 
 	u32 const vertex_size = sizeof(GeoUtils::Vertex);
 	u32 const index_size = sizeof(GeoUtils::Index);
@@ -46,9 +47,9 @@ void MiniApp::Init()
 
 void MiniApp::render()
 {
-	// TODO(cmdlist_refactor): we could use a seperate cmdlist here, but to be correct we would need to sync on it.
-	Gfx::BeginPresent(m_draw_cmds);
+	Gfx::BeginPresent(m_present_cmds);
 
+	Gfx::OpenCommandList(m_draw_cmds);
 	Gfx::BindPSO(m_draw_cmds, Gfx::BasicPSO::VertexColorSolid);
 	Gfx::BindConstantBuffer(&m_camera_constants, Gfx::ShaderStage::Vertex, 0);
 
@@ -59,9 +60,9 @@ void MiniApp::render()
 	// TODO(): Surely I should be able to record this into upload_cmds, then submit and make draw_cmds wait on the fence.
 	Gfx::UpdateBuffer(m_draw_cmds, &m_camera_constants, &cb_data, sizeof(cb_data));
 	Gfx::DrawMesh(m_draw_cmds, &m_cube_mesh);
-	//Gfx::SubmitCommandList(m_draw_cmds); // TODO(cmdlist_refactor): Atm endpresent wants to close this since we use the same commandlist.
+	Gfx::SubmitCommandList(m_draw_cmds);
 
-	Gfx::EndPresent(m_draw_cmds);
+	Gfx::EndPresent(m_present_cmds);
 }
 
 bool IsKeyDown(InputMessages const* msg, KeyCode::Enum key)

@@ -15,6 +15,7 @@ private:
 
 	Gfx::Commandlist m_upload_cmds;
 	Gfx::Commandlist m_draw_cmds;
+	Gfx::Commandlist m_present_cmds;
 	Gfx::GpuBuffer m_camera_constants;
 	
 	Gfx::Mesh m_cube_mesh;

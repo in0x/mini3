@@ -448,6 +448,8 @@ public:
 	u64 CloseAndSubmitCommandList(Gfx::Commandlist handle);
 	void WaitForFenceValueCpuBlocking(u64 fenceValue);
 
+	void SetupGfxCommandList(ID3D12GraphicsCommandList* cmdlist);
+
 	DXGI_FORMAT GetBackBufferFormat() const { return m_backbuffer_format; }
 	DXGI_FORMAT GetDSFormat() const { return m_depthbuffer_format; }
 
@@ -964,16 +966,6 @@ void GpuDeviceDX12::BeginPresent(Gfx::Commandlist present_cmd_list)
 	OpenCommandList(present_cmd_list);
 	ID3D12GraphicsCommandList* cmd_list = m_cmd_lists.GetCmdList(present_cmd_list);
 
-	ID3D12DescriptorHeap* heaps[] =
-	{
-		frame->resource_descriptors_gpu.GetGpuHeap(),
-		frame->sampler_descriptors_gpu.GetGpuHeap()
-	};
-
-	cmd_list->SetDescriptorHeaps(ARRAY_SIZE(heaps), heaps);
-	cmd_list->SetGraphicsRootSignature(m_graphics_root_sig.Get());
-	cmd_list->SetComputeRootSignature(m_compute_root_sig.Get());
-
 	D3D12_CPU_DESCRIPTOR_HANDLE null_descriptors[] = 
 	{
 		m_null_sampler,
@@ -993,39 +985,30 @@ void GpuDeviceDX12::BeginPresent(Gfx::Commandlist present_cmd_list)
 	// Transition the render target into the correct state to allow for drawing into it.
 	TransitionBarrier(frame->GetRenderTarget(), present_cmd_list, ResourceState::Present, ResourceState::Render_Target);
 
-	// Set the viewport and scissor rect.
-	{
-		D3D12_VIEWPORT viewport = GetScreenViewport();
-		D3D12_RECT scissorRect = GetScissorRect();
-		cmd_list->RSSetViewports(1, &viewport);
-		cmd_list->RSSetScissorRects(1, &scissorRect);
-	}
-
 	// Clear the backbuffer and views. 
 	{
 		f32 const blueViolet[4] = { 0.541176498f, 0.168627456f, 0.886274576f, 1.000000000f };
 
 		CD3DX12_CPU_DESCRIPTOR_HANDLE rtvDescriptor = GetRenderTargetView();
 		CD3DX12_CPU_DESCRIPTOR_HANDLE dsvDescriptor = GetDepthStencilView();
-
-		cmd_list->OMSetRenderTargets(1, &rtvDescriptor, FALSE, &dsvDescriptor); // todo: do we need this?
 		cmd_list->ClearRenderTargetView(rtvDescriptor, blueViolet, 0, nullptr);
 		cmd_list->ClearDepthStencilView(dsvDescriptor, D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, 0, nullptr);
 	}
+
+	CloseAndSubmitCommandList(present_cmd_list);
 }
 
 void GpuDeviceDX12::EndPresent(Gfx::Commandlist present_cmd_list)
 {
-	ComPtr<IDXGISwapChain3> swapchain = GetSwapChain();
-
 	FrameResource* frame = GetFrameResources();
 	
 	// Transition the render target to the state that allows it to be presented to the display.
+	OpenCommandList(present_cmd_list);
 	TransitionBarrier(frame->GetRenderTarget(), present_cmd_list, ResourceState::Render_Target, ResourceState::Present);
-
 	CloseAndSubmitCommandList(present_cmd_list);
 
 	{
+		ComPtr<IDXGISwapChain3> swapchain = GetSwapChain();
 		HRESULT hr = S_OK;
 		if (IsTearingAllowed())
 		{
@@ -1818,6 +1801,32 @@ ComPtr<ID3D12PipelineState> GpuDeviceDX12::CreateGraphicsPSO(D3D12_GRAPHICS_PIPE
 void GpuDeviceDX12::OpenCommandList(Gfx::Commandlist handle)
 {
 	m_cmd_lists.OpenCommandList(handle);
+	SetupGfxCommandList(m_cmd_lists.GetCmdList(handle));
+}
+
+void GpuDeviceDX12::SetupGfxCommandList(ID3D12GraphicsCommandList* cmdlist)
+{
+	FrameResource* frame = GetFrameResources();
+
+	ID3D12DescriptorHeap* heaps[] =
+	{
+		frame->resource_descriptors_gpu.GetGpuHeap(),
+		frame->sampler_descriptors_gpu.GetGpuHeap()
+	};
+
+	cmdlist->SetDescriptorHeaps(ARRAY_SIZE(heaps), heaps);
+	cmdlist->SetGraphicsRootSignature(m_graphics_root_sig.Get());
+	cmdlist->SetComputeRootSignature(m_compute_root_sig.Get());
+
+	D3D12_VIEWPORT viewport = GetScreenViewport();
+	D3D12_RECT scissorRect = GetScissorRect();
+	cmdlist->RSSetViewports(1, &viewport);
+	cmdlist->RSSetScissorRects(1, &scissorRect);
+
+	CD3DX12_CPU_DESCRIPTOR_HANDLE rtvDescriptor = GetRenderTargetView();
+	CD3DX12_CPU_DESCRIPTOR_HANDLE dsvDescriptor = GetDepthStencilView();
+
+	cmdlist->OMSetRenderTargets(1, &rtvDescriptor, FALSE, &dsvDescriptor);
 }
 
 u64 GpuDeviceDX12::CloseAndSubmitCommandList(Gfx::Commandlist handle)
