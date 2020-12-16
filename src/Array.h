@@ -7,10 +7,14 @@ struct BasicCounterPolicy
 	typedef u32 CounterType;
 };
 
-struct AtomicCounterPolicy
-{
-	typedef std::atomic<u32> CounterType;
-};
+// TODO(): this is actually broken code, not threadsafe.
+// Two threads can read the counter at the same time for the assert,
+// then bump it at the same time, exploding over the end. Needs a lock,
+// memory barrier, or a read back where we try to increase it with expected value, then check again before using.
+//struct AtomicCounterPolicy
+//{
+//	typedef std::atomic<u32> CounterType;
+//};
 
 template<typename T, u32 Capacity, typename CounterPolicy = BasicCounterPolicy>
 class Array

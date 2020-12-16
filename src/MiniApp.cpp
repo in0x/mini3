@@ -9,7 +9,6 @@ void MiniApp::Init()
 {
 	__super::Init();
 
-	Gfx::RegisterCommandProducerThread();
 	Gfx::CreateGpuDevice(GetNativeHandle(), m_window_cfg->width, m_window_cfg->height,  Gfx::InitFlags::Enable_Debug_Layer | Gfx::InitFlags::Allow_Tearing);
 	
 	GeoUtils::CubeGeometry cube;
@@ -47,7 +46,8 @@ void MiniApp::Init()
 
 void MiniApp::render()
 {
-	Gfx::OpenCommandList(m_draw_cmds);
+	// TODO(cmdlist_refactor): we could use a seperate cmdlist here, but to be correct we would need to sync on it.
+	Gfx::BeginPresent(m_draw_cmds);
 
 	Gfx::BindPSO(m_draw_cmds, Gfx::BasicPSO::VertexColorSolid);
 	Gfx::BindConstantBuffer(&m_camera_constants, Gfx::ShaderStage::Vertex, 0);
@@ -59,7 +59,9 @@ void MiniApp::render()
 	// TODO(): Surely I should be able to record this into upload_cmds, then submit and make draw_cmds wait on the fence.
 	Gfx::UpdateBuffer(m_draw_cmds, &m_camera_constants, &cb_data, sizeof(cb_data));
 	Gfx::DrawMesh(m_draw_cmds, &m_cube_mesh);
-	Gfx::SubmitCommandList(m_draw_cmds);
+	//Gfx::SubmitCommandList(m_draw_cmds); // TODO(cmdlist_refactor): Atm endpresent wants to close this since we use the same commandlist.
+
+	Gfx::EndPresent(m_draw_cmds);
 }
 
 bool IsKeyDown(InputMessages const* msg, KeyCode::Enum key)
@@ -89,10 +91,10 @@ bool MiniApp::Update()
 	}
 
 	//LOG(Log::Category::Default, "KeyStates:");
-	LOG(Log::Category::Default, "W: %s", IsKeyDown(&input, KeyCode::W) ? "yes" : "no");
-	LOG(Log::Category::Default, "A: %s", IsKeyDown(&input, KeyCode::A) ? "yes" : "no");
-	LOG(Log::Category::Default, "S: %s", IsKeyDown(&input, KeyCode::S) ? "yes" : "no");
-	LOG(Log::Category::Default, "D: %s", IsKeyDown(&input, KeyCode::D) ? "yes" : "no");
+	//LOG(Log::Category::Default, "W: %s", IsKeyDown(&input, KeyCode::W) ? "yes" : "no");
+	//LOG(Log::Category::Default, "A: %s", IsKeyDown(&input, KeyCode::A) ? "yes" : "no");
+	//LOG(Log::Category::Default, "S: %s", IsKeyDown(&input, KeyCode::S) ? "yes" : "no");
+	//LOG(Log::Category::Default, "D: %s", IsKeyDown(&input, KeyCode::D) ? "yes" : "no");
 
 	f32 total_time = GetTotalTimeS(m_timer);
 
@@ -123,9 +125,7 @@ bool MiniApp::Update()
 		m_proj = Math::MatrixPerspectiveFovLH(fov_y, aspect_ratio, 0.01f, 1000.0f);
 	}
 
-	Gfx::BeginPresent();
 	render();
-	Gfx::EndPresent();
 	
 	return true;
 }

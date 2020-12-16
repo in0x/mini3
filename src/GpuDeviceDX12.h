@@ -19,8 +19,8 @@ namespace Gfx
 	void CreateGpuDevice(void* main_window_handle, u32 output_width, u32 output_height, u32 flags);
 	void DestroyGpuDevice();
 	void RegisterCommandProducerThread();
-	void BeginPresent();
-	void EndPresent();
+	void BeginPresent(Commandlist present_cmd_list);
+	void EndPresent(Commandlist present_cmd_list);
 
 	DXGI_FORMAT GetBackBufferFormat();
 	DXGI_FORMAT GetDSFormat();
