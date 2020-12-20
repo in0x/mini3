@@ -9,7 +9,13 @@ void MiniApp::Init()
 {
 	__super::Init();
 
-	Gfx::CreateGpuDevice(GetNativeHandle(), m_window_cfg->width, m_window_cfg->height,  Gfx::InitFlags::Enable_Debug_Layer | Gfx::InitFlags::Allow_Tearing);
+#ifdef _DEBUG
+	u32 gfx_flags = Gfx::InitFlags::Enable_Debug_Layer | Gfx::InitFlags::Allow_Tearing;
+#else
+	u32 gfx_flags = Gfx::InitFlags::Allow_Tearing;
+#endif
+
+	Gfx::CreateGpuDevice(GetNativeHandle(), m_window_cfg->width, m_window_cfg->height, gfx_flags);
 	
 	GeoUtils::CubeGeometry cube;
 	GeoUtils::CreateBox(1.5f, 1.5f, 1.5f, &cube);
@@ -48,17 +54,17 @@ void MiniApp::Init()
 void MiniApp::render()
 {
 	Gfx::BeginPresent(m_present_cmds);
-
 	Gfx::OpenCommandList(m_draw_cmds);
+
+	// TODO(): Surely I should be able to record this into upload_cmds, then submit and make draw_cmds wait on the fence.
+	PerObjectData cb_data;
+	cb_data.model = m_world;
+	cb_data.view_proj = m_proj * m_view;
+	Gfx::UpdateBuffer(m_draw_cmds, &m_camera_constants, &cb_data, sizeof(cb_data));
+
 	Gfx::BindPSO(m_draw_cmds, Gfx::BasicPSO::VertexColorSolid);
 	Gfx::BindConstantBuffer(&m_camera_constants, Gfx::ShaderStage::Vertex, 0);
 
-	PerObjectData cb_data;
-	cb_data.model = m_world;
-	cb_data.view_proj = m_view * m_proj;
-
-	// TODO(): Surely I should be able to record this into upload_cmds, then submit and make draw_cmds wait on the fence.
-	Gfx::UpdateBuffer(m_draw_cmds, &m_camera_constants, &cb_data, sizeof(cb_data));
 	Gfx::DrawMesh(m_draw_cmds, &m_cube_mesh);
 	Gfx::SubmitCommandList(m_draw_cmds);
 
@@ -86,6 +92,8 @@ bool MiniApp::Update()
 	
 	if (input.m_wants_to_quit)
 	{
+		Gfx::Flush();
+
 		// Don't start another frame if we want to quit 
 		// and have stopped pumping the window thread.
 		return false;
@@ -103,10 +111,10 @@ bool MiniApp::Update()
 	{
 		f32 angle = sin(total_time);
 
-		mtx4x4 translate = Math::MatrixTranslation(0.0f, 0.0f, 1.0f);
-		mtx4x4 rotation = Math::MatrixRotationY(angle);
-		
-		m_world = Math::MatrixRotationY(angle) * Math::MatrixRotationX(angle) * translate;
+		mat44 translate = Math::Translation<mat44>(0.0f, 0.0f, 1.0f);
+		mat44 rotation = Math::RotationX<mat44>(angle);
+
+		m_world = translate * rotation;
 	}
 
 	// Calc view matrix

@@ -2,166 +2,284 @@
 
 #include "Core.h"
 #include <math.h>
-#include <DirectXMath.h>
-#include <DirectXPackedVector.h>
 
 #define MM_INLINE inline
 #define MM_FORCEINL __forceinline
 #define MM_VECTORCALL __vectorcall
 #define MM_DEFAULT_INL MM_INLINE
 
-typedef DirectX::XMMATRIX simd_mtx;
+// ====================================
+//  Math Types
+//  Notes:
+//  *) Uses column major convention
+// ====================================
 
-struct mtx4x3 : public DirectX::XMFLOAT4X3 {};
-
-struct mtx4x4 : public DirectX::XMFLOAT4X4 
+struct vec2
 {
-	MM_DEFAULT_INL mtx4x4& MM_VECTORCALL operator*=(mtx4x4 const& other)
+	union
 	{
-		using namespace DirectX;
+		f32 data[2];
+		struct { f32 x; f32 y; };
+	};
 
-		simd_mtx simd_lhs = XMLoadFloat4x4(this);
-		simd_mtx simd_rhs = XMLoadFloat4x4(&other);
-		simd_mtx mul = XMMatrixMultiply(simd_lhs, simd_rhs);
-		
-		XMStoreFloat4x4(this, mul);
-		return *this;
+	vec2() = default;
+
+	vec2(f32 _x, f32 _y)
+		: x(_x), y(_y)
+	{}
+};
+
+struct vec3
+{
+	union
+	{
+		f32 data[3];
+		struct { f32 x; f32 y; f32 z; };
+	};
+
+	vec3() = default;
+
+	vec3(f32 _x, f32 _y, f32 _z)
+		: x(_x), y(_y), z(_z)
+	{}
+};
+
+struct vec4
+{
+	union
+	{
+		f32 data[4];
+		struct { f32 x; f32 y; f32 z; f32 w; };
+		vec3 xyz;
+	};
+
+	vec4() = default;
+
+	vec4(f32 _x, f32 _y, f32 _z, f32 _w)
+		: x(_x), y(_y), z(_z), w(_w)
+	{}
+};
+
+struct mat44
+{
+	union
+	{
+		f32 data[16]; // NOTE(): column major
+
+		// NOTE(): If we want to preserve (row, column) addressing
+		// we can define a element by element struct here with out
+		// of order naming, such that the user can just access e.g.
+		// m21 that is at the correct memory location.
+	};
+
+	mat44() = default;
+
+	mat44(
+		f32 m00, f32 m01, f32 m02, f32 m03,
+		f32 m10, f32 m11, f32 m12, f32 m13,
+		f32 m20, f32 m21, f32 m22, f32 m23,
+		f32 m30, f32 m31, f32 m32, f32 m33)
+	{
+		data[0] = m00;
+		data[1] = m10;
+		data[2] = m20;
+		data[3] = m30;
+
+		data[4] = m01;
+		data[5] = m11;
+		data[6] = m21;
+		data[7] = m31;
+
+		data[8] = m02;
+		data[9] = m12;
+		data[10] = m22;
+		data[11] = m32;
+
+		data[12] = m03;
+		data[13] = m13;
+		data[14] = m23;
+		data[15] = m33;
+	}
+
+	MM_DEFAULT_INL f32& operator()(u32 row, u32 col)
+	{
+		ASSERT(row < 4 && col < 4);
+		return data[col * 4 + row];
+	}
+
+	MM_DEFAULT_INL f32 const& operator()(u32 row, u32 col) const
+	{
+		ASSERT(row < 4 && col < 4);
+		return data[col * 4 + row];
+	}
+
+	static mat44 const& Identity()
+	{
+		static const mat44 s_identity = mat44(
+			1, 0, 0, 0,
+			0, 1, 0, 0,
+			0, 0, 1, 0,
+			0, 0, 0, 1
+		);
+
+		return s_identity;
 	}
 };
 
-struct vec2 : public DirectX::XMFLOAT2 
-{
-	vec2() = default;
-	vec2(f32 x, f32 y) : DirectX::XMFLOAT2(x, y) {}
-};
-
-struct vec3 : public DirectX::XMFLOAT3 
-{
-	vec3() = default;
-	vec3(f32 x, f32 y, f32 z) : DirectX::XMFLOAT3(x, y, z) {}
-};
-
-struct vec4 : public DirectX::XMFLOAT4 
-{
-	vec4() = default;
-	vec4(f32 x, f32 y, f32 z, f32 w) : DirectX::XMFLOAT4(x, y, z, w) {}
-};
 
 namespace Math
 {
 	// ====================================
-	//  Math Types
-	// ====================================
-
-	//struct float2 { f32 x; f32 y; };
-	//struct float3 { f32 x; f32 y; f32 z; };
-	//struct float4 { f32 x; f32 y; f32 z; f32 w; };
-	//struct float3x4 {  float4 rows[3]; };
-
-	// ====================================
 	//  Math Types Funcs
 	// ====================================
 
-	using namespace DirectX;
-
-	constexpr f32 Pi = 3.1415926535f;
-
-	static MM_DEFAULT_INL mtx4x4 MM_VECTORCALL MatrixTranslation(f32 x, f32 y, f32 z)
+	static MM_DEFAULT_INL vec3 MM_VECTORCALL operator-(vec3 a, vec3 b)
 	{
-		mtx4x4 out_mtx;
-		XMStoreFloat4x4(&out_mtx, XMMatrixTranslation(x, y, z));
-		return out_mtx;
+		return vec3(a.x - b.x, a.y - b.y, a.z - b.z);
 	}
 
-	static MM_DEFAULT_INL mtx4x4 MM_VECTORCALL MatrixRotationX(f32 angle_rad)
+	static MM_DEFAULT_INL vec3 MM_VECTORCALL operator-(vec3 a)
 	{
-		mtx4x4 out_mtx;
-		XMStoreFloat4x4(&out_mtx, XMMatrixRotationX(angle_rad));
-		return out_mtx;
+		return vec3(-a.x, -a.y, -a.z);
 	}
 
-	static MM_DEFAULT_INL mtx4x4 MM_VECTORCALL MatrixRotationY(f32 angle_rad)
+	static MM_DEFAULT_INL f32 MM_VECTORCALL Length(vec3 v)
 	{
-		mtx4x4 out_mtx;
-		XMStoreFloat4x4(&out_mtx, XMMatrixRotationY(angle_rad));
-		return out_mtx;
+		return sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
 	}
 
-	static MM_DEFAULT_INL mtx4x4 MM_VECTORCALL MatrixScale(f32 x, f32 y, f32 z)
+	static MM_DEFAULT_INL vec3 MM_VECTORCALL Normalize(vec3 v)
 	{
-		mtx4x4 out_mtx;
-		XMStoreFloat4x4(&out_mtx, XMMatrixScaling(x, y, z));
-		return out_mtx;
+		f32 len = Length(v);
+		return vec3( 
+			v.x / len,
+			v.y / len,
+			v.z / len);
 	}
 
-	static MM_INLINE mtx4x4 MM_VECTORCALL MatrixTransform(vec3 translate, vec3 rotate, vec3 scale)
+	static MM_DEFAULT_INL f32 MM_VECTORCALL Dot(vec3 a, vec3 b)
 	{
-		mtx4x4 out_mtx;
-
-		XMStoreFloat4x4(
-			&out_mtx,
-			XMMatrixAffineTransformation(
-				XMVectorSet(scale.x, scale.y, scale.z, 0.0f), 
-				g_XMZero,
-				XMVectorSet(rotate.x, rotate.y, rotate.z, 0.0f),
-				XMVectorSet(translate.x, translate.y, translate.z, 0.0f)
-		));
-
-		return out_mtx;
+		return a.x * b.x + a.y * b.y + a.z * b.z;
 	}
-
-	static MM_DEFAULT_INL mtx4x4 MM_VECTORCALL MatrixMul(mtx4x4 const& a, mtx4x4 const& b)
-	{
-		XMMATRIX simd_a = XMLoadFloat4x4(&a);
-		XMMATRIX simd_b = XMLoadFloat4x4(&b);
-		
-		mtx4x4 out_mtx;
-		XMStoreFloat4x4(&out_mtx, XMMatrixMultiply(simd_a, simd_b));
-		
-		return out_mtx;
-	}
-
-	static MM_DEFAULT_INL mtx4x4 MM_VECTORCALL MatrixTranspose(mtx4x4 const& mtx)
-	{
-		XMMATRIX simd = XMLoadFloat4x4(&mtx);
-		simd = XMMatrixTranspose(simd);
 	
-		mtx4x4 out_mtx;
-		XMStoreFloat4x4(&out_mtx, simd);
-
-		return out_mtx;
+	static MM_DEFAULT_INL vec3 MM_VECTORCALL Cross(vec3 a, vec3 b)
+	{
+		return vec3(
+			a.y * b.z - a.z * b.y,
+			a.z * b.x - a.x * b.z,
+			a.x * b.y - a.y * b.x);
 	}
 
-	static MM_DEFAULT_INL mtx4x4 MM_VECTORCALL MatrixLookAtLH(vec3 eye_pos, vec3 look_at, vec3 up_dir)
+	template <typename Matrix>
+	static MM_DEFAULT_INL Matrix MM_VECTORCALL Translation(f32 x, f32 y, f32 z)
 	{
-		XMMATRIX result = XMMatrixLookAtLH(
-			XMVectorSet(eye_pos.x, eye_pos.y, eye_pos.z, 0.0f),
-			XMVectorSet(look_at.x, look_at.y, look_at.z, 0.0f),
-			XMVectorSet(up_dir.x, up_dir.y, up_dir.z, 0.0f)
-		);
+		Matrix mat = Matrix::Identity();
+		mat(0, 3) = x;
+		mat(1, 3) = y;
+		mat(2, 3) = z;
 
-		mtx4x4 out_mtx;
-		XMStoreFloat4x4(&out_mtx, result);
-
-		return out_mtx;
+		return mat;
 	}
 
-	static MM_DEFAULT_INL mtx4x4 MM_VECTORCALL MatrixPerspectiveFovLH(f32 fov_y_rad, f32 aspect_ratio, f32 near_z, f32 far_z)
+	template <typename Matrix>
+	static MM_DEFAULT_INL Matrix MM_VECTORCALL RotationX(f32 angle_rad)
 	{
-		XMMATRIX result = XMMatrixPerspectiveFovLH(fov_y_rad, aspect_ratio, near_z, far_z);
+		Matrix mat = Matrix::Identity();
 
-		mtx4x4 out_mtx;
-		XMStoreFloat4x4(&out_mtx, result);
+		f32 const c = cos(angle_rad);
+		f32 const s = sin(angle_rad);
+
+		mat(1, 1) = c;
+		mat(2, 1) = s;
+		mat(1, 2) = -s;
+		mat(2, 2) = c;
+	
+		return mat;
+	}
+
+	//static MM_DEFAULT_INL mtx4x4 MM_VECTORCALL MatrixRotationY(f32 angle_rad)
+	//{
+	//	mtx4x4 out_mtx;
+	//	XMStoreFloat4x4(&out_mtx, XMMatrixRotationY(angle_rad));
+	//	return out_mtx;
+	//}
+
+	static MM_DEFAULT_INL mat44 MM_VECTORCALL Mul(mat44 const& a, mat44 const& b)
+	{
+		mat44 dst;
+
+#if 1
+		dst(0, 0) = a(0, 0) * b(0, 0) + a(0, 1) * b(1, 0) + a(0, 2) * b(2, 0) + a(0, 3) * b(3, 0);
+		dst(0, 1) = a(0, 0) * b(0, 1) + a(0, 1) * b(1, 1) + a(0, 2) * b(2, 1) + a(0, 3) * b(3, 1);
+		dst(0, 2) = a(0, 0) * b(0, 2) + a(0, 1) * b(1, 2) + a(0, 2) * b(2, 2) + a(0, 3) * b(3, 2);
+		dst(0, 3) = a(0, 0) * b(0, 3) + a(0, 1) * b(1, 3) + a(0, 2) * b(2, 3) + a(0, 3) * b(3, 3);
+
+		dst(1, 0) = a(1, 0) * b(0, 0) + a(1, 1) * b(1, 0) + a(1, 2) * b(2, 0) + a(1, 3) * b(3, 0);
+		dst(1, 1) = a(1, 0) * b(0, 1) + a(1, 1) * b(1, 1) + a(1, 2) * b(2, 1) + a(1, 3) * b(3, 1);
+		dst(1, 2) = a(1, 0) * b(0, 2) + a(1, 1) * b(1, 2) + a(1, 2) * b(2, 2) + a(1, 3) * b(3, 2);
+		dst(1, 3) = a(1, 0) * b(0, 3) + a(1, 1) * b(1, 3) + a(1, 2) * b(2, 3) + a(1, 3) * b(3, 3);
+
+		dst(2, 0) = a(2, 0) * b(0, 0) + a(2, 1) * b(1, 0) + a(2, 2) * b(2, 0) + a(2, 3) * b(3, 0);
+		dst(2, 1) = a(2, 0) * b(0, 1) + a(2, 1) * b(1, 1) + a(2, 2) * b(2, 1) + a(2, 3) * b(3, 1);
+		dst(2, 2) = a(2, 0) * b(0, 2) + a(2, 1) * b(1, 2) + a(2, 2) * b(2, 2) + a(2, 3) * b(3, 2);
+		dst(2, 3) = a(2, 0) * b(0, 3) + a(2, 1) * b(1, 3) + a(2, 2) * b(2, 3) + a(2, 3) * b(3, 3);
+
+		dst(3, 0) = a(3, 0) * b(0, 0) + a(3, 1) * b(1, 0) + a(3, 2) * b(2, 0) + a(3, 3) * b(3, 0);
+		dst(3, 1) = a(3, 0) * b(0, 1) + a(3, 1) * b(1, 1) + a(3, 2) * b(2, 1) + a(3, 3) * b(3, 1);
+		dst(3, 2) = a(3, 0) * b(0, 2) + a(3, 1) * b(1, 2) + a(3, 2) * b(2, 2) + a(3, 3) * b(3, 2);
+		dst(3, 3) = a(3, 0) * b(0, 3) + a(3, 1) * b(1, 3) + a(3, 2) * b(2, 3) + a(3, 3) * b(3, 3);
+#else
+		for (int row = 0; row < 4; row++)
+		{
+			for (int col = 0; col < 4; col++)
+			{
+				dst(row, col) = a(row, 0) * b(0, col) + a(row, 1) * b(1, col) + a(row, 2) * b(2, col) + a(row, 3) * b(3, col);
+			}
+		}
+#endif
+
+		return dst;
+	}
+
+	static MM_DEFAULT_INL mat44 MM_VECTORCALL Transpose(mat44 const& mat)
+	{
+		return mat44(
+			mat(0, 0), mat(1, 0), mat(2, 0), mat(3, 0),
+			mat(0, 1), mat(1, 1), mat(2, 1), mat(3, 1),
+			mat(0, 2), mat(1, 2), mat(2, 2), mat(3, 2),
+			mat(0, 3), mat(1, 3), mat(2, 3), mat(3, 3));
+	}
+
+	static MM_DEFAULT_INL mat44 MM_VECTORCALL MatrixLookAtLH(vec3 eye_pos, vec3 look_at, vec3 up_dir)
+	{
+		vec3 z_axis = Normalize((look_at - eye_pos));
 		
-		return out_mtx;
+		vec3 x_axis = Normalize(Cross(up_dir, z_axis));
+
+		vec3 y_axis = Cross(z_axis, x_axis);
+
+		return mat44(
+			x_axis.x, x_axis.y, x_axis.z, -Dot(x_axis, eye_pos),
+			y_axis.x, y_axis.y, y_axis.z, -Dot(y_axis, eye_pos),
+			z_axis.x, z_axis.y, z_axis.z, -Dot(z_axis, eye_pos),
+			0,        0,        0,        1
+		);
 	}
 
-	static MM_DEFAULT_INL mtx4x4 MM_VECTORCALL MatrixIdentity()
+	static MM_DEFAULT_INL mat44 MM_VECTORCALL MatrixPerspectiveFovLH(f32 fov_y_rad, f32 aspect_ratio, f32 near_z, f32 far_z)
 	{
-		mtx4x4 out_mtx;
-		XMStoreFloat4x4(&out_mtx, XMMatrixIdentity());
+		f32 sin_fov = sin(0.5 * fov_y_rad);
+		f32 cos_fov = cos(0.5 * fov_y_rad);
 
-		return out_mtx;
+		f32 height = cos_fov / sin_fov;
+		f32 width = height / aspect_ratio;
+		f32 z_range = far_z / (far_z - near_z);
+	
+		return mat44(
+				width, 0, 0, 0,
+				0, height, 0, 0,
+				0, 0, z_range, -z_range * near_z,
+				0, 0, 1.0f, 0);
 	}
 
 	// Returns a vec3 (0,0,0).
@@ -197,6 +315,12 @@ namespace Math
 	}
 
 	// ====================================
+	//  Constants
+	// ====================================
+
+	constexpr f32 Pi = 3.1415926535f;
+
+	// ====================================
 	//  Math Utility Funcs
 	// ====================================
 
@@ -211,13 +335,7 @@ namespace Math
 	}
 }
 
-static MM_DEFAULT_INL mtx4x4 MM_VECTORCALL operator*(mtx4x4 const& lhs, mtx4x4 const& rhs)
+static MM_FORCEINL mat44 MM_VECTORCALL operator*(mat44 const& a, mat44 const& b)
 {
-	simd_mtx simd_lhs = XMLoadFloat4x4(&lhs);
-	simd_mtx simd_rhs = XMLoadFloat4x4(&rhs);
-	simd_mtx mul = XMMatrixMultiply(simd_lhs, simd_rhs);
-
-	mtx4x4 out;
-	XMStoreFloat4x4(&out, mul);
-	return out;
+	return Math::Mul(a, b);
 }

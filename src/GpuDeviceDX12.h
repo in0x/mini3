@@ -21,6 +21,7 @@ namespace Gfx
 	void RegisterCommandProducerThread();
 	void BeginPresent(Commandlist present_cmd_list);
 	void EndPresent(Commandlist present_cmd_list);
+	void Flush();
 
 	DXGI_FORMAT GetBackBufferFormat();
 	DXGI_FORMAT GetDSFormat();

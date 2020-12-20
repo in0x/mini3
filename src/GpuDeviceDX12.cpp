@@ -2152,6 +2152,11 @@ namespace Gfx
 		g_gpu_device->EndPresent(present_cmd_list);
 	}
 
+	void Flush()
+	{
+		g_gpu_device->Flush();
+	}
+
 	DXGI_FORMAT GetBackBufferFormat()
 	{
 		return g_gpu_device->GetBackBufferFormat();

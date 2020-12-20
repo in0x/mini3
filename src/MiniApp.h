@@ -1,4 +1,3 @@
-#pragma once
 #include "BaseApp.h"
 #include "Math.h"
 
@@ -20,14 +19,14 @@ private:
 	
 	Gfx::Mesh m_cube_mesh;
 
-	mtx4x4 m_world;
-	mtx4x4 m_view;
-	mtx4x4 m_proj;
+	mat44 m_world;
+	mat44 m_view;
+	mat44 m_proj;
 
 	struct PerObjectData
 	{
-		mtx4x4 model;
-		mtx4x4 view_proj;
-		u8 pad[128];
+		mat44 model;
+		mat44 view_proj;
+		u8 pad[128]; // TODO(): do we/should we verify this inside cb creation? (padding to dx required alignment)
 	};
 };

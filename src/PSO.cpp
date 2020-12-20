@@ -26,8 +26,12 @@ namespace Gfx
 				flags |= D3DCOMPILE_SKIP_OPTIMIZATION;
 			}
 
+#if 0 // NOTE(): was experimenting with doing row major, 
+	  // but became confusing against standard literature.
 			flags |= D3DCOMPILE_PACK_MATRIX_ROW_MAJOR;
-
+#else 
+			flags |= D3DCOMPILE_PACK_MATRIX_COLUMN_MAJOR;
+#endif
 			return flags;
 		}
 	};
