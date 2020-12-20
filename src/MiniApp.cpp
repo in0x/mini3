@@ -84,6 +84,46 @@ bool IsKeyDown(InputMessages const* msg, KeyCode::Enum key)
 	return false;
 }
 
+struct ArcBallCamera
+{
+	f32 m_phi = Math::Pi / 4.0f;
+	f32 m_zoom = 5.0f;
+	f32 m_theta =  Math::Pi * 1.5f;
+
+	vec3 m_eye_pos;
+};
+
+void UpdateCamera(InputMessages const* input, ArcBallCamera* camera)
+{
+	f32 const rot_speed = 0.02f;
+
+	if (IsKeyDown(input, KeyCode::S))
+	{
+		camera->m_phi += rot_speed;
+	}
+	
+	if (IsKeyDown(input, KeyCode::W))
+	{
+		camera->m_phi -= rot_speed;
+	}
+	
+	if (IsKeyDown(input, KeyCode::D))
+	{
+		camera->m_theta += rot_speed;
+	}
+
+	if (IsKeyDown(input, KeyCode::A))
+	{
+		camera->m_theta -= rot_speed;
+	}
+
+	camera->m_phi = Clamp(camera->m_phi, 0.1f, Math::Pi - 0.1f); // NOTE(): Restrict to ~180°
+
+	camera->m_eye_pos.x = camera->m_zoom * sinf(camera->m_phi) * cosf(camera->m_theta);
+	camera->m_eye_pos.z = camera->m_zoom * sinf(camera->m_phi) * sinf(camera->m_theta);
+	camera->m_eye_pos.y = camera->m_zoom * cosf(camera->m_phi);
+}
+
 bool MiniApp::Update()
 {
 	__super::Update();
@@ -99,12 +139,6 @@ bool MiniApp::Update()
 		return false;
 	}
 
-	//LOG(Log::Category::Default, "KeyStates:");
-	//LOG(Log::Category::Default, "W: %s", IsKeyDown(&input, KeyCode::W) ? "yes" : "no");
-	//LOG(Log::Category::Default, "A: %s", IsKeyDown(&input, KeyCode::A) ? "yes" : "no");
-	//LOG(Log::Category::Default, "S: %s", IsKeyDown(&input, KeyCode::S) ? "yes" : "no");
-	//LOG(Log::Category::Default, "D: %s", IsKeyDown(&input, KeyCode::D) ? "yes" : "no");
-
 	f32 total_time = GetTotalTimeS(m_timer);
 
 	// Calc single object world matrix
@@ -114,12 +148,16 @@ bool MiniApp::Update()
 		mat44 translate = Math::Translation<mat44>(0.0f, 0.0f, 1.0f);
 		mat44 rotation = Math::RotationX<mat44>(angle);
 
-		m_world = translate * rotation;
+		//m_world = translate * rotation;
+		m_world = translate;
 	}
+
+	static ArcBallCamera s_camera;
+	UpdateCamera(&input, &s_camera);
 
 	// Calc view matrix
 	{
-		vec3 eye_pos = vec3(0.0f, 0.0f, -5.0f);
+		vec3 eye_pos = s_camera.m_eye_pos;
 		vec3 look_at = vec3(0.0f, 0.0f, 0.0f);
 		vec3 up = Math::UpDir();
 

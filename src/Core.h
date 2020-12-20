@@ -107,15 +107,21 @@ void DebugPrintf(char const* file, int line, char const* fmt, Log::Category cate
 #define ARRAY_SIZE(x) _countof(x)
 
 template <class T>
-T max(const T& a, const T& b)
+static T max(const T& a, const T& b)
 {
 	return (b > a) ? b : a;
 }
 
 template <class T>
-T min(const T& a, const T& b)
+static T min(const T& a, const T& b)
 {
 	return (b < a) ? b : a;
+}
+
+template<typename T>
+static T Clamp(const T& x, const T& low, const T& high)
+{
+	return x < low ? low : (x > high ? high : x);
 }
 
 inline void memzero(void* dst, size_t size)

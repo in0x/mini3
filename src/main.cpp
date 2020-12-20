@@ -4,6 +4,7 @@
 #include "Win32Window.h"
 #include "WindowConfig.h"
 #include "MiniApp.h"
+#include "Math.h"
 
 void AppthreadMain(BaseApp* app)
 {
@@ -20,6 +21,10 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR lpCmdLine, INT nC
 	UNUSED(hPrevInstance);
 	UNUSED(lpCmdLine);
 	UNUSED(nCmdShow);
+
+	LOG(Log::Default, "Running Unit Tests");
+
+	Math::Test::Run();
 
 	LOG(Log::Default, "Initializing mini3");
 

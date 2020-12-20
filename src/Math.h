@@ -58,6 +58,12 @@ struct vec4
 	vec4(f32 _x, f32 _y, f32 _z, f32 _w)
 		: x(_x), y(_y), z(_z), w(_w)
 	{}
+
+	vec4(vec3 const& v)
+	{
+		xyz = v;
+		w = 0.0f;
+	}
 };
 
 struct mat44
@@ -130,6 +136,31 @@ struct mat44
 namespace Math
 {
 	// ====================================
+	//  Constants
+	// ====================================
+
+	constexpr f32 Pi = 3.1415926535f;
+
+	// ====================================
+	//  Math Utility Funcs
+	// ====================================
+
+	static MM_DEFAULT_INL f32 MM_VECTORCALL RadToDegree(f32 rad)
+	{
+		return rad * (180.0f / Pi);
+	}
+
+	static MM_DEFAULT_INL f32 MM_VECTORCALL DegreeToRad(f32 degree)
+	{
+		return degree * (Pi / 180.0f);
+	}
+
+	namespace Test
+	{
+		void Run();
+	}
+
+	// ====================================
 	//  Math Types Funcs
 	// ====================================
 
@@ -186,8 +217,8 @@ namespace Math
 	{
 		Matrix mat = Matrix::Identity();
 
-		f32 const c = cos(angle_rad);
-		f32 const s = sin(angle_rad);
+		f32 const c = cosf(angle_rad);
+		f32 const s = sinf(angle_rad);
 
 		mat(1, 1) = c;
 		mat(2, 1) = s;
@@ -203,6 +234,31 @@ namespace Math
 	//	XMStoreFloat4x4(&out_mtx, XMMatrixRotationY(angle_rad));
 	//	return out_mtx;
 	//}
+
+	template <typename Matrix>
+	static MM_DEFAULT_INL Matrix MM_VECTORCALL RotationXYZ(f32 x_rad, f32 y_rad, f32 z_rad)
+	{
+		f32 const A = cosf(x_rad);
+		f32 const B = sinf(x_rad);
+		f32 const C = cosf(y_rad);
+		f32 const D = sinf(y_rad);
+		f32 const E = cosf(z_rad);
+		f32 const F = sinf(z_rad);
+
+		return mat44(
+			C * E,             -C * F,             -D,     0.0f,
+			-B * D * E + A * F, B * D * F + A * E, -B * C, 0.0f,
+			A * D * E + B * F, -A * D * F + B * E, A * C,  0.0f,
+			0.0f,              0.0f,               0.0f,   1.0f
+		);
+	}
+
+	template <typename Matrix>
+	static MM_FORCEINL Matrix MM_VECTORCALL RotationXYZ(vec3 euler_angles)
+	{
+		return RotationXYZ(DegreeToRad(euler_angles.x), DegreeToRad(euler_angles.y), DegreeToRad(euler_angles.z));
+	}
+
 
 	static MM_DEFAULT_INL mat44 MM_VECTORCALL Mul(mat44 const& a, mat44 const& b)
 	{
@@ -241,6 +297,30 @@ namespace Math
 		return dst;
 	}
 
+	static MM_DEFAULT_INL vec4 MM_VECTORCALL Mul(mat44 const& mat, vec4 const& vec)
+	{
+		return vec4(
+			mat(0, 0) * vec.x + mat(0, 1) * vec.y + mat(0, 2) * vec.z + mat(0, 3) * vec.w,
+			mat(1, 0) * vec.x + mat(1, 1) * vec.y + mat(1, 2) * vec.z + mat(1, 3) * vec.w,
+			mat(2, 0) * vec.x + mat(2, 1) * vec.y + mat(2, 2) * vec.z + mat(2, 3) * vec.w,
+			mat(3, 0) * vec.x + mat(3, 1) * vec.y + mat(3, 2) * vec.z + mat(3, 3) * vec.w);
+	}
+
+	static MM_DEFAULT_INL vec4 MM_VECTORCALL Mul(vec4 const& vec, f32 scalar)
+	{
+		return vec4(
+			vec.x * scalar,
+			vec.y * scalar,
+			vec.z * scalar,
+			vec.w * scalar
+		);
+	}
+
+	static MM_DEFAULT_INL bool MM_VECTORCALL Cmp(mat44 const& a, mat44 const& b)
+	{
+		 return memcmp(a.data, b.data, 16 * sizeof(f32)) == 0;
+	}
+
 	static MM_DEFAULT_INL mat44 MM_VECTORCALL Transpose(mat44 const& mat)
 	{
 		return mat44(
@@ -268,8 +348,8 @@ namespace Math
 
 	static MM_DEFAULT_INL mat44 MM_VECTORCALL MatrixPerspectiveFovLH(f32 fov_y_rad, f32 aspect_ratio, f32 near_z, f32 far_z)
 	{
-		f32 sin_fov = sin(0.5 * fov_y_rad);
-		f32 cos_fov = cos(0.5 * fov_y_rad);
+		f32 sin_fov = sinf(0.5f * fov_y_rad);
+		f32 cos_fov = cosf(0.5f * fov_y_rad);
 
 		f32 height = cos_fov / sin_fov;
 		f32 width = height / aspect_ratio;
@@ -313,29 +393,19 @@ namespace Math
 	{
 		return vec3(0.0f, 1.0f, 0.0f);
 	}
-
-	// ====================================
-	//  Constants
-	// ====================================
-
-	constexpr f32 Pi = 3.1415926535f;
-
-	// ====================================
-	//  Math Utility Funcs
-	// ====================================
-
-	static MM_DEFAULT_INL f32 MM_VECTORCALL RadToDegree(f32 rad)
-	{
-		return rad * (180.0f / Pi);
-	}
-
-	static MM_DEFAULT_INL f32 MM_VECTORCALL DegreeToRad(f32 degree)
-	{
-		return degree * (Pi / 180.0f);
-	}
 }
 
 static MM_FORCEINL mat44 MM_VECTORCALL operator*(mat44 const& a, mat44 const& b)
 {
 	return Math::Mul(a, b);
+}
+
+static MM_FORCEINL vec4 MM_VECTORCALL operator*(vec4 const& vec, f32 scalar)
+{
+	return Math::Mul(vec, scalar);
+}
+
+static MM_FORCEINL bool MM_VECTORCALL operator==(mat44 const& a, mat44 const& b)
+{
+	return Math::Cmp(a, b);
 }
