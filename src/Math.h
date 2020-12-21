@@ -145,15 +145,47 @@ namespace Math
 	//  Math Utility Funcs
 	// ====================================
 
-	static MM_DEFAULT_INL f32 MM_VECTORCALL RadToDegree(f32 rad)
+	constexpr static MM_DEFAULT_INL f32 MM_VECTORCALL RadToDegree(f32 rad)
 	{
 		return rad * (180.0f / Pi);
 	}
 
-	static MM_DEFAULT_INL f32 MM_VECTORCALL DegreeToRad(f32 degree)
+	constexpr static MM_DEFAULT_INL f32 MM_VECTORCALL DegreeToRad(f32 degree)
 	{
 		return degree * (Pi / 180.0f);
 	}
+
+	struct Rad;
+
+	struct Deg
+	{
+		f32 m_value;
+
+		constexpr explicit Deg() : m_value(0.0f) {}
+		constexpr explicit Deg(f32 value)
+			: m_value(value)
+		{}
+	};
+
+	struct Rad
+	{
+		f32 m_value;
+
+		constexpr explicit Rad() : m_value(0.0f) {}
+		
+		constexpr explicit Rad(f32 value)
+			: m_value(value)
+		{}
+
+		constexpr explicit Rad(Deg degrees)
+			: m_value(DegreeToRad(degrees.m_value))
+		{}
+
+		constexpr operator Deg() const 
+		{
+			return Deg(RadToDegree(m_value));
+		}
+	};
 
 	namespace Test
 	{
@@ -213,12 +245,12 @@ namespace Math
 	}
 
 	template <typename Matrix>
-	static MM_DEFAULT_INL Matrix MM_VECTORCALL RotationX(f32 angle_rad)
+	static MM_DEFAULT_INL Matrix MM_VECTORCALL RotationX(Rad angle_rad)
 	{
 		Matrix mat = Matrix::Identity();
 
-		f32 const c = cosf(angle_rad);
-		f32 const s = sinf(angle_rad);
+		f32 const c = cosf(angle_rad.m_value);
+		f32 const s = sinf(angle_rad.m_value);
 
 		mat(1, 1) = c;
 		mat(2, 1) = s;
@@ -236,14 +268,14 @@ namespace Math
 	//}
 
 	template <typename Matrix>
-	static MM_DEFAULT_INL Matrix MM_VECTORCALL RotationXYZ(f32 x_rad, f32 y_rad, f32 z_rad)
+	static MM_DEFAULT_INL Matrix MM_VECTORCALL RotationXYZ(Rad x_rad, Rad y_rad, Rad z_rad)
 	{
-		f32 const A = cosf(x_rad);
-		f32 const B = sinf(x_rad);
-		f32 const C = cosf(y_rad);
-		f32 const D = sinf(y_rad);
-		f32 const E = cosf(z_rad);
-		f32 const F = sinf(z_rad);
+		f32 const A = cosf(x_rad.m_value);
+		f32 const B = sinf(x_rad.m_value);
+		f32 const C = cosf(y_rad.m_value);
+		f32 const D = sinf(y_rad.m_value);
+		f32 const E = cosf(z_rad.m_value);
+		f32 const F = sinf(z_rad.m_value);
 
 		return mat44(
 			C * E,             -C * F,             -D,     0.0f,

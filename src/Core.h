@@ -124,6 +124,11 @@ static T Clamp(const T& x, const T& low, const T& high)
 	return x < low ? low : (x > high ? high : x);
 }
 
+static bool NearlyEqual(f32 a, f32 b, f32 epsilon = /* 0.00001 */ 0.000000001)
+{
+	return fabs(a - b) <= epsilon;
+}
+
 inline void memzero(void* dst, size_t size)
 {
 	memset(dst, 0, size);

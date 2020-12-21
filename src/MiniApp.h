@@ -15,7 +15,9 @@ private:
 	Gfx::Commandlist m_upload_cmds;
 	Gfx::Commandlist m_draw_cmds;
 	Gfx::Commandlist m_present_cmds;
-	Gfx::GpuBuffer m_camera_constants;
+
+	Gfx::GpuBuffer m_frame_constants;
+	Gfx::GpuBuffer m_obj_constants;
 	
 	Gfx::Mesh m_cube_mesh;
 
@@ -23,10 +25,15 @@ private:
 	mat44 m_view;
 	mat44 m_proj;
 
+	struct PerFrameData
+	{
+		mat44 view_proj;
+		//u8 pad[192]; - Internally padded by gfx
+	};
+
 	struct PerObjectData
 	{
 		mat44 model;
-		mat44 view_proj;
-		u8 pad[128]; // TODO(): do we/should we verify this inside cb creation? (padding to dx required alignment)
+		//u8 pad[192]; - Internally padded by gfx
 	};
 };

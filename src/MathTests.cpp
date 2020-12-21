@@ -97,12 +97,35 @@ namespace Test
 		ASSERT(mat_expected == mat_actual);
 	}
 
+	void RadDegreeConverions()
+	{
+		{
+			Deg deg_90(90.0f);
+			Rad rad_90(deg_90);
+
+			ASSERT(NearlyEqual(rad_90.m_value, Math::Pi / 2.0f));
+		}
+		{
+			Deg deg_180(180.0f);
+			Rad rad_180(deg_180);
+
+			ASSERT(NearlyEqual(rad_180.m_value, Math::Pi));
+		}
+		{
+			Deg deg_neg45(-45.0f);
+			Rad rad_neg45(deg_neg45);
+
+			ASSERT(NearlyEqual(rad_neg45.m_value, -Math::Pi / 4.0f));
+		}
+	}
+
 	void Run()
 	{
 		Mat44ConstructFromElements();
 		Mat44IndexAccess();
 		Mat44Cmp();
 		Mat44Mul();
+		RadDegreeConverions();
 	}
 }
 }

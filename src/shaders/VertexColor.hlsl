@@ -14,10 +14,14 @@ struct VertexOut
 
 #ifdef VERTEX_SHADER
 
-cbuffer cbPerObject : register(b0)
+cbuffer cbPerFrame : register(b0)
+{
+	float4x4 g_view_proj;
+}
+
+cbuffer cbPerObject : register(b1)
 {
 	float4x4 g_model;
-	float4x4 g_view_proj;
 };
 
 VertexOut vs_main(VertexIn vsIn)

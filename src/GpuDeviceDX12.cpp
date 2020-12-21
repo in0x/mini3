@@ -2371,7 +2371,7 @@ namespace Gfx
 	void UpdateBuffer(Commandlist cmd_list, GpuBuffer const* buffer, void* data, u32 size_bytes)
 	{
 		ASSERT_F(buffer->desc.usage != BufferUsage::Immutable, "Cannot update immutable buffer!");
-		ASSERT_F(buffer->desc.sizes_bytes >= size_bytes, "Tried write data larger than buffer size!");
+		ASSERT_F(buffer->desc.sizes_bytes >= size_bytes, "Tried to write data larger than buffer size!");
 
 		size_bytes = min(size_bytes, buffer->desc.sizes_bytes);
 

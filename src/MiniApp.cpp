@@ -16,35 +16,49 @@ void MiniApp::Init()
 #endif
 
 	Gfx::CreateGpuDevice(GetNativeHandle(), m_window_cfg->width, m_window_cfg->height, gfx_flags);
-	
-	GeoUtils::CubeGeometry cube;
-	GeoUtils::CreateBox(1.5f, 1.5f, 1.5f, &cube);
 
-	m_upload_cmds = Gfx::CreateCommandList(D3D12_COMMAND_LIST_TYPE_DIRECT, L"geo_upload_cmds");
-	Gfx::OpenCommandList(m_upload_cmds);
+	// Create command lists
+	{
+		m_upload_cmds = Gfx::CreateCommandList(D3D12_COMMAND_LIST_TYPE_DIRECT, L"geo_upload_cmds");
+		m_draw_cmds = Gfx::CreateCommandList(D3D12_COMMAND_LIST_TYPE_DIRECT, L"draw_cmds");
+		m_present_cmds = Gfx::CreateCommandList(D3D12_COMMAND_LIST_TYPE_DIRECT, L"present_cmds");
+	}
 
-	m_draw_cmds = Gfx::CreateCommandList(D3D12_COMMAND_LIST_TYPE_DIRECT, L"draw_cmds");
-	m_present_cmds = Gfx::CreateCommandList(D3D12_COMMAND_LIST_TYPE_DIRECT, L"present_cmds");
+	// Generate cube geometry buffers
+	{
+		Gfx::OpenCommandList(m_upload_cmds);
 
-	u32 const vertex_size = sizeof(GeoUtils::Vertex);
-	u32 const index_size = sizeof(GeoUtils::Index);
-	m_cube_mesh.vertex_buffer_gpu = Gfx::CreateVertexBuffer(m_upload_cmds, cube.vertices, vertex_size * GeoUtils::CubeGeometry::num_vertices, vertex_size);
-	m_cube_mesh.index_buffer_gpu = Gfx::CreateIndexBuffer(m_upload_cmds, cube.indices, index_size * GeoUtils::CubeGeometry::num_indices);
+		GeoUtils::CubeGeometry cube;
+		GeoUtils::CreateBox(1.5f, 1.5f, 1.5f, &cube);
 
-	Gfx::SubMesh* submesh = m_cube_mesh.submeshes.PushBack();
-	submesh->num_indices = cube.num_indices;
-	submesh->base_vertex_location = 0;
-	submesh->first_index_location = 0;
+		u32 const vertex_size = sizeof(GeoUtils::Vertex);
+		u32 const index_size = sizeof(GeoUtils::Index);
+		m_cube_mesh.vertex_buffer_gpu = Gfx::CreateVertexBuffer(m_upload_cmds, cube.vertices, vertex_size * GeoUtils::CubeGeometry::num_vertices, vertex_size);
+		m_cube_mesh.index_buffer_gpu = Gfx::CreateIndexBuffer(m_upload_cmds, cube.indices, index_size * GeoUtils::CubeGeometry::num_indices);
 
-	PerObjectData cbData;
+		Gfx::SubMesh* submesh = m_cube_mesh.submeshes.PushBack();
+		submesh->num_indices = cube.num_indices;
+		submesh->base_vertex_location = 0;
+		submesh->first_index_location = 0;
+	}
 
-	Gfx::GpuBufferDesc cam_desc;
-	cam_desc.bind_flags = Gfx::BindFlags::ConstantBuffer;
-	cam_desc.usage = Gfx::BufferUsage::Default;
-	cam_desc.cpu_access_flags = 0;
-	cam_desc.sizes_bytes = sizeof(PerObjectData);
+	// Generate per-frame and per-object constant buffers
+	{
+		Gfx::GpuBufferDesc frame;
+		frame.bind_flags = Gfx::BindFlags::ConstantBuffer;
+		frame.usage = Gfx::BufferUsage::Default;
+		frame.cpu_access_flags = 0;
+		frame.sizes_bytes = sizeof(PerFrameData);
+		m_frame_constants = Gfx::CreateBuffer(m_upload_cmds, frame, L"FrameConstants");
 
-	m_camera_constants = Gfx::CreateBuffer(m_upload_cmds, cam_desc, L"CameraConstants", &cbData);
+		Gfx::GpuBufferDesc obj;
+		obj.bind_flags = Gfx::BindFlags::ConstantBuffer;
+		obj.usage = Gfx::BufferUsage::Dynamic;
+		obj.cpu_access_flags = 0;
+		obj.sizes_bytes = sizeof(PerObjectData);
+		m_obj_constants = Gfx::CreateBuffer(m_upload_cmds, obj, L"ObjectConstants");
+	}
+
 	u64 upload_fence = Gfx::SubmitCommandList(m_upload_cmds);
 
 	Gfx::CompileBasicPSOs();
@@ -56,14 +70,18 @@ void MiniApp::render()
 	Gfx::BeginPresent(m_present_cmds);
 	Gfx::OpenCommandList(m_draw_cmds);
 
+	PerFrameData frame_constants;
+	frame_constants.view_proj = m_proj * m_view;
+	Gfx::UpdateBuffer(m_draw_cmds, &m_frame_constants, &frame_constants, sizeof(frame_constants));
+
 	// TODO(): Surely I should be able to record this into upload_cmds, then submit and make draw_cmds wait on the fence.
-	PerObjectData cb_data;
-	cb_data.model = m_world;
-	cb_data.view_proj = m_proj * m_view;
-	Gfx::UpdateBuffer(m_draw_cmds, &m_camera_constants, &cb_data, sizeof(cb_data));
+	PerObjectData obj_constants;
+	obj_constants.model = m_world;
+	Gfx::UpdateBuffer(m_draw_cmds, &m_obj_constants, &obj_constants, sizeof(obj_constants));
 
 	Gfx::BindPSO(m_draw_cmds, Gfx::BasicPSO::VertexColorSolid);
-	Gfx::BindConstantBuffer(&m_camera_constants, Gfx::ShaderStage::Vertex, 0);
+	Gfx::BindConstantBuffer(&m_frame_constants, Gfx::ShaderStage::Vertex, 0);
+	Gfx::BindConstantBuffer(&m_obj_constants, Gfx::ShaderStage::Vertex, 1);
 
 	Gfx::DrawMesh(m_draw_cmds, &m_cube_mesh);
 	Gfx::SubmitCommandList(m_draw_cmds);
@@ -95,7 +113,7 @@ struct ArcBallCamera
 
 void UpdateCamera(InputMessages const* input, ArcBallCamera* camera)
 {
-	f32 const rot_speed = 0.02f;
+	f32 const rot_speed = 0.2f;
 
 	if (IsKeyDown(input, KeyCode::S))
 	{
@@ -117,7 +135,7 @@ void UpdateCamera(InputMessages const* input, ArcBallCamera* camera)
 		camera->m_theta -= rot_speed;
 	}
 
-	camera->m_phi = Clamp(camera->m_phi, 0.1f, Math::Pi - 0.1f); // NOTE(): Restrict to ~180°
+	camera->m_phi = Clamp(camera->m_phi, 0.1f, Math::Pi - 0.1f); // NOTE(): Restrict to ~+-180°
 
 	camera->m_eye_pos.x = camera->m_zoom * sinf(camera->m_phi) * cosf(camera->m_theta);
 	camera->m_eye_pos.z = camera->m_zoom * sinf(camera->m_phi) * sinf(camera->m_theta);
@@ -145,8 +163,8 @@ bool MiniApp::Update()
 	{
 		f32 angle = sin(total_time);
 
-		mat44 translate = Math::Translation<mat44>(0.0f, 0.0f, 1.0f);
-		mat44 rotation = Math::RotationX<mat44>(angle);
+		mat44 translate = Math::Translation<mat44>(0.0f, 0.0f, 0.0f);
+		mat44 rotation = Math::RotationX<mat44>(Math::Rad(angle));
 
 		//m_world = translate * rotation;
 		m_world = translate;
