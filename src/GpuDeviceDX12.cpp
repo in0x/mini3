@@ -1927,6 +1927,12 @@ void GpuDeviceDX12::UpdateConstantBindings(ID3D12GraphicsCommandList* cmd_list)
 	frame->sampler_descriptors_gpu.Update(GetD3DDevice(), cmd_list);
 }
 
+// TODO(): Eventually we'll need more sophisiticated buffer management, since if the buffer is going to be uploaded to, we cant
+// share the memory across frames. Inititally, as a simple solution I was going to allocate cbs large enough to span all frames
+// and then flip around the sub-regions based on frame index, creating multiple cbvs as well. However I then realized that there
+// would also be a need for this for UAVs. So the right answer is probably to manage my buffer memory better once I start hitting
+// this limitation. There are some nice solutions out there that use a ringbuffer for memory that sub-allocate out per frame. A
+// solution for this problem will likely entail changing my binding strategy (-> more complicated) and using a better allocator like AMDs.
 GpuBuffer GpuDeviceDX12::CreateBuffer(ID3D12GraphicsCommandList* cmd_list, GpuBufferDesc const& desc, void* initial_data, wchar_t* name)
 {
 	GpuBuffer buffer;
@@ -1940,7 +1946,7 @@ GpuBuffer GpuDeviceDX12::CreateBuffer(ID3D12GraphicsCommandList* cmd_list, GpuBu
 	
 	u64 aligned_size = Memory::AlignValue(desc.sizes_bytes, alignment);
 
-	D3D12_HEAP_PROPERTIES heap_props = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT);
+	D3D12_HEAP_PROPERTIES heap_props = CD3DX12_HEAP_PROPERTIES(desc.usage == BufferUsage::Staging ? D3D12_HEAP_TYPE_READBACK : D3D12_HEAP_TYPE_DEFAULT);
 	D3D12_HEAP_FLAGS heap_flags = D3D12_HEAP_FLAG_NONE;
 
 	D3D12_RESOURCE_FLAGS resource_flags = D3D12_RESOURCE_FLAG_NONE;
@@ -1950,7 +1956,7 @@ GpuBuffer GpuDeviceDX12::CreateBuffer(ID3D12GraphicsCommandList* cmd_list, GpuBu
 	}
 
 	D3D12_RESOURCE_DESC resource_desc = CD3DX12_RESOURCE_DESC::Buffer(aligned_size, resource_flags);
-	D3D12_RESOURCE_STATES resource_states = D3D12_RESOURCE_STATE_COMMON;
+	D3D12_RESOURCE_STATES resource_states = desc.usage == BufferUsage::Staging ? D3D12_RESOURCE_STATE_COPY_DEST : D3D12_RESOURCE_STATE_COMMON;
 
 	ID3D12Resource** resourceSlot = m_created_buffers.PushBack();
 
@@ -2312,7 +2318,7 @@ namespace Gfx
 
 		GpuBufferDesc desc;
 		MemZeroSafe(desc);
-		desc.usage = BufferUsage::Default;
+		desc.usage = BufferUsage::Immutable;
 		desc.sizes_bytes = vertex_bytes;
 		desc.bind_flags = BindFlags::VertexBuffer;
 		desc.stride_in_bytes = vertex_stride_bytes;
@@ -2334,7 +2340,7 @@ namespace Gfx
 
 		GpuBufferDesc desc;
 		MemZeroSafe(desc);
-		desc.usage = BufferUsage::Default;
+		desc.usage = BufferUsage::Immutable;
 		desc.sizes_bytes = index_bytes;
 		desc.bind_flags = BindFlags::IndexBuffer;
 		desc.format = DXGI_FORMAT_R16_UINT;
