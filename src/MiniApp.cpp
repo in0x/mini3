@@ -5,9 +5,21 @@
 #include "InputMessageQueue.h"
 #include "GeoUtils.h"
 
+#include "GLTFImport.h"
+
 void MiniApp::Init()
 {
 	__super::Init();
+
+	Memory::Arena import_scratch;
+	Memory::InitArena(&import_scratch, Megabyte(2));
+
+	Mini::SceneImporter importer;
+	importer.file_path = "C:\\Users\\Philipp\\Documents\\work\\glTF-Sample-Models\\2.0\\DamagedHelmet\\glTF\\DamagedHelmet.gltf";
+	importer.scratch_arena = &import_scratch;
+
+	Mini::Import(&importer);
+	Memory::FreeArena(&import_scratch);
 
 #ifdef _DEBUG
 	u32 gfx_flags = Gfx::InitFlags::Enable_Debug_Layer | Gfx::InitFlags::Allow_Tearing;

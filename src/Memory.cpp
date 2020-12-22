@@ -49,6 +49,27 @@ namespace Memory
 		VirtualFree(arena->m_memory_block, 0, MEM_RELEASE);
 	}
 
+	TemporaryAllocation BeginTemporaryAlloc(Arena* arena)
+	{
+		TemporaryAllocation alloc;
+		alloc.m_start = arena->m_bytes_used;
+
+		return alloc;
+	}
+	
+	void RewindTemporaryAlloc(Arena* arena, TemporaryAllocation alloc, bool zero_memory)
+	{
+		u64 alloc_size = arena->m_bytes_used - alloc.m_start;
+		if (alloc_size > 0)
+		{
+			arena->m_bytes_used = alloc.m_start;
+			if (zero_memory)
+			{
+				memzero(arena->m_memory_block, alloc_size);
+			}
+		}
+	}
+
 	PushParams DefaultPushParams()
 	{
 		PushParams params;
@@ -56,6 +77,34 @@ namespace Memory
 		params.flags = 0;
 
 		return params;
+	}
+
+	PushParams ZeroPush()
+	{
+		PushParams params;
+		params.alignment = PLATFORM_DEFAULT_ALIGNMENT;
+		params.flags = PushParams::CLEAR_TO_ZERO;
+
+		return params;
+	}
+
+	PushParams ZeroAndAlignPush(u64 alignment)
+	{
+		PushParams params;
+		params.alignment = alignment;
+		params.flags = PushParams::CLEAR_TO_ZERO;
+
+		return params;
+	}
+
+	PushParams AlignPush(u64 alignment)
+	{
+		PushParams params;
+		params.alignment = alignment;
+		params.flags = 0;
+
+		return params;
+
 	}
 
 	void* PushSize(Arena* arena, u64 size_bytes, PushParams push_params)

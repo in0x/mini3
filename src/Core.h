@@ -29,6 +29,28 @@ thread_local static char g_debugMsgBuffer[MAX_DEBUG_MSG_SIZE];
 
 using ScopedLock = std::lock_guard<std::mutex>;
 
+template <typename Invokable>
+struct ScopeExit
+{
+	ScopeExit(Invokable to_invoke) : m_to_invoke(to_invoke) {}
+	~ScopeExit() { m_to_invoke(); }
+
+	Invokable m_to_invoke;
+};
+
+template <typename Invokable>
+ScopeExit<Invokable> MakeScopeExit(Invokable to_invoke)
+{
+	return ScopeExit<Invokable>(to_invoke);
+}
+
+#define JOIN_STRING2(s1, s2) JOIN_STRING2_INTERNAL(s1, s2)
+#define JOIN_STRING2_INTERNAL(s1, s2) s1 ## s2
+
+// NOTE(): This captures by ref, so beware lifetimes (hopefully nothing complex goes in here anyways)!
+#define ON_SCOPE_EXIT(code) \
+	auto JOIN_STRING2(scope_exit, __LINE__)  = MakeScopeExit([&]() {code;});
+
 u64 static constexpr PLATFORM_DEFAULT_ALIGNMENT = alignof(std::max_align_t);
 
 static constexpr u64 Kilobyte(u64 num)
@@ -111,7 +133,7 @@ void CStrToWChar(char const* src_c_str, wchar_t* dst_w_str, u32 str_len);
 #define UNUSED(x) (void)(x)
 
 #ifdef _DEBUG
-#define ASSERT(x) assert(x)
+#define ASSERT(x) assert(x) // TODO(): This should be messagebox so we can actually continue exection
 #define ASSERT_F(x, format, ...) if (!(x)) { LOG(Log::Assert, format, __VA_ARGS__); assert(x); }
 #define ASSERT_FAIL() assert(false)
 #define ASSERT_FAIL_F(format, ...) ASSERT_F(false, format, __VA_ARGS__)

@@ -42,9 +42,17 @@ namespace Memory
 		u64 m_size;
 	};
 
+	struct TemporaryAllocation
+	{
+		u64 m_start;
+	};
+
 	void InitArena(Arena* arena, u64 size_bytes, u64 alignment = PLATFORM_DEFAULT_ALIGNMENT);
 	void ClearArena(Arena* arena, bool zero_memory);
 	void FreeArena(Arena* arena);
+
+	TemporaryAllocation BeginTemporaryAlloc(Arena* arena);
+	void RewindTemporaryAlloc(Arena* arena, TemporaryAllocation alloc, bool zero_memory);
 
 	struct PushParams
 	{
@@ -58,5 +66,9 @@ namespace Memory
 	};
 
 	PushParams DefaultPushParams();
+	PushParams ZeroPush();
+	PushParams ZeroAndAlignPush(u64 alignment);
+	PushParams AlignPush(u64 alignment);
+
 	void* PushSize(Arena* arena, u64 size_bytes, PushParams push_params = DefaultPushParams());
 }
