@@ -74,3 +74,13 @@ void DebugPrintf(char const* file, int line, char const* fmt, Log::Category cate
 
 	OutputDebugString(g_debugFmtBuffer);
 }
+
+void CStrToWChar(char const* src_c_str, wchar_t* dst_w_str, u32 str_len)
+{
+	size_t retval = 0;
+	mbstate_t state;
+	MemZeroSafe(&state);
+
+	errno_t ret_code = mbsrtowcs_s(&retval, dst_w_str, str_len, &src_c_str, _TRUNCATE, &state);
+	ASSERT(ret_code == 0);
+}

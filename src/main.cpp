@@ -6,6 +6,7 @@
 #include "MiniApp.h"
 #include "Math.h"
 #include "Memory.h"
+#include "IO.h"
 
 void AppthreadMain(BaseApp* app)
 {
@@ -25,6 +26,9 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR lpCmdLine, INT nC
 
 	LOG(Log::Default, "Initing Memory System");
 	Memory::Init();
+
+	LOG(Log::Default, "Initing File System");
+	IO::FileSysInit("C:\\Users\\Philipp\\Documents\\work\\mini3"); // TODO(): Get this from a cvar
 
 	LOG(Log::Default, "Running Unit Tests");
 	Math::Test::Run();
@@ -49,13 +53,6 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR lpCmdLine, INT nC
 	app.SetMessageQueue(&window.m_msg_queue);
 	app.SetWindowCfg(&config);
 
-	char cwd_buffer[MAX_PATH];
-	GetCurrentDirectory(MAX_PATH, cwd_buffer);
-	LOG(Log::Win32, "Program working directory: %s", cwd_buffer);
-
-	// TODO(): Get this from a cvar
-	SetCurrentDirectory("C:\\Users\\Philipp\\Documents\\work\\mini3");
-
 	// We run the app on the "App" thread to avoid blocking during message pump.
 	std::thread appthread(AppthreadMain, &app);
 
@@ -76,6 +73,7 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR lpCmdLine, INT nC
 	appthread.join();
 	window.Exit();
 
+	IO::FileSysExit();
 	Memory::Exit();
 
 	return 0;

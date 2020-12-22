@@ -1,6 +1,7 @@
 #include "PSO.h"
 #include "d3dcompiler.h"
 #include "GpuDeviceDX12.h"
+#include "IO.h"
 
 namespace Gfx
 {
@@ -180,8 +181,14 @@ namespace Gfx
 
 	void PSOCache::CompileBasicPSOs()
 	{
-		Shader* vert_shader = m_Shaders.PushBack(CreateShader(L"src\\shaders\\VertexColor.hlsl", ShaderStage::Vertex));
-		Shader* pixl_shader = m_Shaders.PushBack(CreateShader(L"src\\shaders\\VertexColor.hlsl", ShaderStage::Pixel));
+		IO::Path shader_path;
+		IO::GetAbsoluteFilePath("src\\shaders\\VertexColor.hlsl", &shader_path);
+
+		wchar_t w_path[IO::s_max_path];
+		CStrToWChar(shader_path.m_str, w_path, IO::s_max_path);
+
+		Shader* vert_shader = m_Shaders.PushBack(CreateShader(w_path, ShaderStage::Vertex));
+		Shader* pixl_shader = m_Shaders.PushBack(CreateShader(w_path, ShaderStage::Pixel));
 
 		D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
 		DefaultInitGraphicsPsoDesc(&pso_desc);

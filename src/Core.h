@@ -98,6 +98,10 @@ struct Log
 
 void DebugPrintf(char const* file, int line, char const* fmt, Log::Category category, ...);
 
+// Use for very basic 1:1 conversion from c_str to w_str. Doesnt take care of cases where the number
+// bytes might be a mismatch (unicode)!
+void CStrToWChar(char const* src_c_str, wchar_t* dst_w_str, u32 str_len);
+
 #ifdef _DEBUG
 #define LOG(category, format, ...) DebugPrintf(__FILE__, __LINE__, format, category, __VA_ARGS__); 
 #else
