@@ -5,6 +5,7 @@
 #include "WindowConfig.h"
 #include "MiniApp.h"
 #include "Math.h"
+#include "Memory.h"
 
 void AppthreadMain(BaseApp* app)
 {
@@ -22,8 +23,10 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR lpCmdLine, INT nC
 	UNUSED(lpCmdLine);
 	UNUSED(nCmdShow);
 
-	LOG(Log::Default, "Running Unit Tests");
+	LOG(Log::Default, "Initing Memory System");
+	Memory::Init();
 
+	LOG(Log::Default, "Running Unit Tests");
 	Math::Test::Run();
 
 	LOG(Log::Default, "Initializing mini3");
@@ -72,6 +75,8 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR lpCmdLine, INT nC
 	
 	appthread.join();
 	window.Exit();
+
+	Memory::Exit();
 
 	return 0;
 }

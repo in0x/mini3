@@ -1,6 +1,6 @@
 #include "GpuDeviceDX12.h"
 #include "Core.h"
-#include "MemUtils.h"
+#include "Memory.h"
 #include "PSO.h"
 
 #if defined(NTDDI_WIN10_RS2)

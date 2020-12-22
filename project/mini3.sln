@@ -5,7 +5,13 @@ VisualStudioVersion = 15.0.28010.2046
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "mini3", "mini3.vcxproj", "{2D0450FA-5D71-46E4-A518-B5A94E1824FF}"
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "MiniCore", "MiniCore\MiniCore.vcxitems", "{D3FD2E6A-D158-4955-88D1-37707653B8CA}"
+EndProject
 Global
+	GlobalSection(SharedMSBuildProjectFiles) = preSolution
+		MiniCore\MiniCore.vcxitems*{2d0450fa-5d71-46e4-a518-b5a94e1824ff}*SharedItemsImports = 4
+		MiniCore\MiniCore.vcxitems*{d3fd2e6a-d158-4955-88d1-37707653b8ca}*SharedItemsImports = 9
+	EndGlobalSection
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x64 = Debug|x64
 		Debug|x86 = Debug|x86

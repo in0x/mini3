@@ -2,44 +2,49 @@
 <Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
     <ClCompile Include="../src/main.cpp" />
-    <ClCompile Include="..\src\Win32.cpp" />
-    <ClCompile Include="..\src\BaseApp.cpp" />
     <ClCompile Include="..\src\MiniApp.cpp" />
     <ClCompile Include="..\src\Win32Window.cpp" />
-    <ClCompile Include="..\src\FrameTimer.cpp" />
-    <ClCompile Include="..\src\Core.cpp" />
     <ClCompile Include="..\src\GpuDeviceDX12.cpp" />
     <ClCompile Include="..\src\PSO.cpp" />
-    <ClCompile Include="..\src\Math.cpp" />
-    <ClCompile Include="..\src\MathTests.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\src\d3dx12.h" />
-    <ClInclude Include="..\src\Core.h" />
-    <ClInclude Include="..\src\Win32.h" />
-    <ClInclude Include="..\src\BaseApp.h" />
     <ClInclude Include="..\src\MiniApp.h" />
     <ClInclude Include="..\src\Win32Window.h" />
-    <ClInclude Include="..\src\InputMessageQueue.h" />
-    <ClInclude Include="..\src\Array.h" />
-    <ClInclude Include="..\src\FrameTimer.h" />
     <ClInclude Include="..\src\GeoUtils.h" />
-    <ClInclude Include="..\src\MemUtils.h" />
     <ClInclude Include="..\src\PSO.h" />
     <ClInclude Include="..\src\GpuDeviceDX12.h" />
     <ClInclude Include="..\src\BasicPSOs.h" />
     <ClInclude Include="..\src\GfxTypes.h" />
-    <ClInclude Include="..\src\WindowConfig.h" />
-    <ClInclude Include="..\src\Math.h" />
+    <ClInclude Include="..\src\external\cgltf\cgltf.h">
+      <Filter>external\cgltf</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\external\cgltf\cgltf_write.h">
+      <Filter>external\cgltf</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <Filter Include="shaders">
       <UniqueIdentifier>{387d01cc-fc20-4f53-b1e1-c4021fb8f221}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="external">
+      <UniqueIdentifier>{04bc3fa9-6b92-4a9e-a858-6d50adc78ab6}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="external\cgltf">
+      <UniqueIdentifier>{2017fac2-83ba-4c5d-b911-aacaeb2cc720}</UniqueIdentifier>
     </Filter>
   </ItemGroup>
   <ItemGroup>
     <FxCompile Include="..\src\shaders\VertexColor.hlsl">
       <Filter>shaders</Filter>
     </FxCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="..\src\external\cgltf\LICENSE">
+      <Filter>external\cgltf</Filter>
+    </None>
+    <None Include="..\src\external\cgltf\README.md">
+      <Filter>external\cgltf</Filter>
+    </None>
   </ItemGroup>
 </Project>

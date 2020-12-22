@@ -1,0 +1,38 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup Label="Globals">
+    <MSBuildAllProjects>$(MSBuildAllProjects);$(MSBuildThisFileFullPath)</MSBuildAllProjects>
+    <HasSharedItems>true</HasSharedItems>
+    <ItemsProjectGuid>{d3fd2e6a-d158-4955-88d1-37707653b8ca}</ItemsProjectGuid>
+  </PropertyGroup>
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories);$(MSBuildThisFileDirectory)</AdditionalIncludeDirectories>
+    </ClCompile>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ProjectCapability Include="SourceItemsFromImports" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\..\src\Memory.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\..\src\Array.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\..\src\BaseApp.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\..\src\Core.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\..\src\FrameTimer.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\..\src\InputMessageQueue.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\..\src\IO.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\..\src\Math.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\..\src\Win32.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\..\src\WindowConfig.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\..\src\BaseApp.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\..\src\Core.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\..\src\FrameTimer.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\..\src\IO.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\..\src\Math.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\..\src\MathTests.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\..\src\Memory.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\..\src\Win32.cpp" />
+  </ItemGroup>
+</Project>

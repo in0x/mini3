@@ -29,6 +29,23 @@ thread_local static char g_debugMsgBuffer[MAX_DEBUG_MSG_SIZE];
 
 using ScopedLock = std::lock_guard<std::mutex>;
 
+u64 static constexpr PLATFORM_DEFAULT_ALIGNMENT = alignof(std::max_align_t);
+
+static constexpr u64 Kilobyte(u64 num)
+{
+	return num * 1024i64;
+}
+
+static constexpr u64 Megabyte(u64 num)
+{
+	return num * 1024i64 * 1024i64;
+}
+
+static constexpr u64 Gigabyte(u64 num)
+{
+	return num * 1024i64 * 1024i64 * 1024i64;
+}
+
 static constexpr size_t BytesToKiloBytes(size_t bytes)
 {
 	return bytes / (1024Ui64);
@@ -44,6 +61,12 @@ static constexpr size_t BytesToGigaBytes(size_t bytes)
 	return bytes / (1024Ui64 * 1024Ui64 * 1024Ui64);
 }
 
+template <typename T>
+bool IsPow2(T value)
+{
+	return (value & T(1)) == 0;
+}
+
 // Returns the position the null terminator was written to.
 int MiniPrintf(char* buffer, size_t bufferLen, const char *fmt, bool appendNewline, ...);
 
@@ -56,6 +79,7 @@ struct Log
 		GfxDevice,
 		Win32,
 		Input,
+		IO,
 
 		EnumCount,
 		EnumFirst = Default,
@@ -67,6 +91,8 @@ struct Log
 		"ASSERT",
 		"GfxDevice",
 		"Win32",
+		"Input",
+		"IO"
 	};
 };
 

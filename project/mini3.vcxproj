@@ -55,6 +55,7 @@
   <ImportGroup Label="ExtensionSettings">
   </ImportGroup>
   <ImportGroup Label="Shared">
+    <Import Project="MiniCore\MiniCore.vcxitems" Label="Shared" />
   </ImportGroup>
   <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
@@ -160,41 +161,32 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="../src/main.cpp" />
-    <ClCompile Include="..\src\Core.cpp" />
     <ClCompile Include="..\src\GpuDeviceDX12.cpp" />
-    <ClCompile Include="..\src\FrameTimer.cpp" />
-    <ClCompile Include="..\src\Math.cpp" />
-    <ClCompile Include="..\src\MathTests.cpp" />
     <ClCompile Include="..\src\MiniApp.cpp" />
     <ClCompile Include="..\src\PSO.cpp" />
     <ClCompile Include="..\src\Win32Window.cpp" />
-    <ClCompile Include="..\src\BaseApp.cpp" />
-    <ClCompile Include="..\src\Win32.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="..\src\Array.h" />
     <ClInclude Include="..\src\BasicPSOs.h" />
     <ClInclude Include="..\src\d3dx12.h" />
-    <ClInclude Include="..\src\Core.h" />
+    <ClInclude Include="..\src\external\cgltf\cgltf.h" />
+    <ClInclude Include="..\src\external\cgltf\cgltf_write.h" />
     <ClInclude Include="..\src\GeoUtils.h" />
     <ClInclude Include="..\src\GfxTypes.h" />
     <ClInclude Include="..\src\GpuDeviceDX12.h" />
-    <ClInclude Include="..\src\InputMessageQueue.h" />
-    <ClInclude Include="..\src\Math.h" />
-    <ClInclude Include="..\src\MemUtils.h" />
     <ClInclude Include="..\src\MiniApp.h" />
-    <ClInclude Include="..\src\FrameTimer.h" />
     <ClInclude Include="..\src\PSO.h" />
     <ClInclude Include="..\src\Win32Window.h" />
-    <ClInclude Include="..\src\BaseApp.h" />
-    <ClInclude Include="..\src\Win32.h" />
-    <ClInclude Include="..\src\WindowConfig.h" />
   </ItemGroup>
   <ItemGroup>
     <FxCompile Include="..\src\shaders\VertexColor.hlsl">
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
     </FxCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="..\src\external\cgltf\LICENSE" />
+    <None Include="..\src\external\cgltf\README.md" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
