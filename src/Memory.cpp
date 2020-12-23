@@ -3,32 +3,37 @@
 
 namespace Memory
 {
-	struct MemorySystem
-	{
-		u64 m_system_page_size;
-	};
-
-	// If this needs to become more complex, we'll want to put it on the heap.
-	static MemorySystem s_memory_system;
-
-	void Init()
-	{
-		_SYSTEM_INFO info;
-		GetSystemInfo(&info);
-
-		s_memory_system.m_system_page_size = info.dwPageSize;
-	}
-
-	void Exit()
-	{
-	}
-
 	void InitArena(Arena* arena, u64 size_bytes, u64 alignment)
 	{
-		u64 aligned_size = AlignValue(size_bytes, alignment);
-		aligned_size = max(aligned_size, s_memory_system.m_system_page_size); // NOTE(): Might as well round up to a whole page to reduce waste.
+		MemZeroSafe(arena);
 
-		u8* allocation = (u8*)VirtualAlloc(0, aligned_size, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+		// Nothing fancy, we just always commit. If we need anything
+		// more complex than this, we'll solve it bespokely.
+		u32 alloc_type = MEM_RESERVE | MEM_COMMIT;
+		u64 aligned_size = size_bytes;
+
+		// If we're over a large page, we'll allocate in large pages. Otherwise we 
+		// round up to a normal page, since we'll be taking that amount always anyways.
+		u64 large_page_size = QueryLargePageSize();
+		if (large_page_size && size_bytes > large_page_size)
+		{
+			alloc_type |= MEM_LARGE_PAGES;
+			aligned_size = AlignValue(size_bytes, large_page_size);
+		}
+		else
+		{
+			aligned_size = AlignValue(size_bytes, alignment);
+			aligned_size = max(aligned_size, QuerySmallPageSize());
+		}
+
+		u8* allocation = (u8*)VirtualAlloc(0, aligned_size, alloc_type, PAGE_READWRITE);
+
+		if (allocation == nullptr)
+		{
+			LogLastWindowsError();
+			ASSERT_FAIL_F("Failed to allocate memory for arena!");
+			return;
+		}
 
 		arena->m_memory_block = allocation;
 		arena->m_bytes_used = 0;
@@ -47,6 +52,7 @@ namespace Memory
 	void FreeArena(Arena* arena)
 	{
 		VirtualFree(arena->m_memory_block, 0, MEM_RELEASE);
+		MemZeroSafe(arena);
 	}
 
 	TemporaryAllocation BeginTemporaryAlloc(Arena* arena)
@@ -113,7 +119,7 @@ namespace Memory
 
 		u8* arena_top = arena->m_memory_block + arena->m_bytes_used;
 		u64 align_offset = GetAlignmentAdjustment(arena_top, push_params.alignment);
-		u64 aligned_size = size_bytes += align_offset;
+		u64 aligned_size = size_bytes + align_offset;
 
 		if ((aligned_size + arena->m_bytes_used) > arena->m_size)
 		{

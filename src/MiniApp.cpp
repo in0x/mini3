@@ -12,7 +12,7 @@ void MiniApp::Init()
 	__super::Init();
 
 	Memory::Arena import_scratch;
-	Memory::InitArena(&import_scratch, Megabyte(2));
+	Memory::InitArena(&import_scratch, Megabyte(16)); // Just reuse a larger game memory arena 
 
 	Mini::SceneImporter importer;
 	importer.file_path = "C:\\Users\\Philipp\\Documents\\work\\glTF-Sample-Models\\2.0\\DamagedHelmet\\glTF\\DamagedHelmet.gltf";

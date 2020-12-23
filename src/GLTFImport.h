@@ -78,10 +78,35 @@ namespace Mini
 		cgltf_options options;
 		MemZeroSafe(options);
 
-		// TODO(): Read the .bin buffer file to get external buffers.
+		static u64 s_mem_alloced = 0;
+
+		struct Local
+		{
+			static void* AllocFromArena(void* user, u64 size)
+			{
+				Memory::Arena* arena = static_cast<Memory::Arena*>(user);
+				return Memory::PushSize(arena, size);
+			}
+
+			static void FreeFromArena(void* user, void* data) 
+			{ 
+				/* NO-OP */ 
+			};
+		};
+
+		options.memory.alloc = &Local::AllocFromArena;
+		options.memory.free = &Local::FreeFromArena;
+		options.memory.user_data = importer->scratch_arena;
+
 		cgltf_data* scene_data;
 		cgltf_result result = cgltf_parse(&options, file_data, stream_len, &scene_data);
 		
+		ASSERT(result == cgltf_result_success);
+
+		cgltf_result buffer_result = cgltf_load_buffers(&options, scene_data, importer->file_path);
+
+		ASSERT(buffer_result == cgltf_result_success);
+
 		if (result == cgltf_result_success)
 		{
 			cgltf_free(scene_data);

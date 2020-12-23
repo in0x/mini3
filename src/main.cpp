@@ -24,8 +24,7 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR lpCmdLine, INT nC
 	UNUSED(lpCmdLine);
 	UNUSED(nCmdShow);
 
-	LOG(Log::Default, "Initing Memory System");
-	Memory::Init();
+	TryEnableLargePages();
 
 	LOG(Log::Default, "Initing File System");
 	IO::FileSysInit("C:\\Users\\Philipp\\Documents\\work\\mini3"); // TODO(): Get this from a cvar
@@ -74,7 +73,6 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR lpCmdLine, INT nC
 	window.Exit();
 
 	IO::FileSysExit();
-	Memory::Exit();
 
 	return 0;
 }

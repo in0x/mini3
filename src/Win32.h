@@ -15,6 +15,10 @@
 
 void LogLastWindowsError();
 
+bool TryEnableLargePages();
+u64 QuerySmallPageSize();
+u64 QueryLargePageSize();
+
 #ifdef _DEBUG
 #define ASSERT_HR(hr) if(SUCCEEDED(hr) == false) { _com_error err(hr); ASSERT_FAIL_F("%s", err.ErrorMessage()); }
 #define ASSERT_HR_F(hr, format, ...) ASSERT_F(SUCCEEDED(hr), format, __VA_ARGS__)
