@@ -14,6 +14,9 @@
 //  *) Uses column major convention
 // ====================================
 
+#pragma warning(push)
+#pragma warning(disable:4201) // warning C4201: nonstandard extension used : nameless struct/union
+
 struct vec2
 {
 	union
@@ -132,6 +135,7 @@ struct mat44
 	}
 };
 
+#pragma warning(pop)
 
 namespace Math
 {

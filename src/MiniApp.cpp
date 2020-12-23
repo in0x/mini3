@@ -7,6 +7,35 @@
 
 #include "GLTFImport.h"
 
+static void CreateCubeMesh(Gfx::Commandlist cmds, Gfx::Mesh* out_mesh)
+{
+	Gfx::OpenCommandList(cmds);
+
+	GeoUtils::CubeGeometry cube;
+	GeoUtils::CreateBox(1.5f, 1.5f, 1.5f, &cube);
+
+	u32 const position_size = sizeof(GeoUtils::Position);
+	u32 const normal_size =   sizeof(GeoUtils::Normal);
+	u32 const texcoord_size = sizeof(GeoUtils::TexCoord);
+	u32 const index_size =    sizeof(GeoUtils::Index);
+
+	out_mesh->vertex_attribs_gpu[Gfx::VertexAttribType::Position] = Gfx::CreateVertexBuffer(
+		cmds, cube.position, position_size * GeoUtils::CubeGeometry::num_vertices, position_size);
+
+	out_mesh->vertex_attribs_gpu[Gfx::VertexAttribType::Normal] = Gfx::CreateVertexBuffer(
+		cmds, cube.normal, normal_size * GeoUtils::CubeGeometry::num_vertices, normal_size);
+
+	out_mesh->vertex_attribs_gpu[Gfx::VertexAttribType::TexCoord] = Gfx::CreateVertexBuffer(
+		cmds, cube.texcoord, texcoord_size * GeoUtils::CubeGeometry::num_vertices, texcoord_size);
+
+	out_mesh->index_buffer_gpu = Gfx::CreateIndexBuffer(cmds, cube.indices, index_size * GeoUtils::CubeGeometry::num_indices);
+
+	Gfx::SubMesh* submesh = out_mesh->submeshes.PushBack();
+	submesh->num_indices = cube.num_indices;
+	submesh->base_vertex_location = 0;
+	submesh->first_index_location = 0;
+}
+
 void MiniApp::Init()
 {
 	__super::Init();
@@ -14,9 +43,13 @@ void MiniApp::Init()
 	Memory::Arena import_scratch;
 	Memory::InitArena(&import_scratch, Megabyte(16)); // Just reuse a larger game memory arena 
 
+	Memory::Arena mesh_resource_memory;
+	Memory::InitArena(&mesh_resource_memory, Megabyte(128));
+
 	Mini::SceneImporter importer;
 	importer.file_path = "C:\\Users\\Philipp\\Documents\\work\\glTF-Sample-Models\\2.0\\DamagedHelmet\\glTF\\DamagedHelmet.gltf";
-	importer.scratch_arena = &import_scratch;
+	importer.scratch_memory = &import_scratch;
+	importer.mesh_memory = &mesh_resource_memory;
 
 	Mini::Import(&importer);
 	Memory::FreeArena(&import_scratch);
@@ -36,23 +69,7 @@ void MiniApp::Init()
 		m_present_cmds = Gfx::CreateCommandList(D3D12_COMMAND_LIST_TYPE_DIRECT, L"present_cmds");
 	}
 
-	// Generate cube geometry buffers
-	{
-		Gfx::OpenCommandList(m_upload_cmds);
-
-		GeoUtils::CubeGeometry cube;
-		GeoUtils::CreateBox(1.5f, 1.5f, 1.5f, &cube);
-
-		u32 const vertex_size = sizeof(GeoUtils::Vertex);
-		u32 const index_size = sizeof(GeoUtils::Index);
-		m_cube_mesh.vertex_buffer_gpu = Gfx::CreateVertexBuffer(m_upload_cmds, cube.vertices, vertex_size * GeoUtils::CubeGeometry::num_vertices, vertex_size);
-		m_cube_mesh.index_buffer_gpu = Gfx::CreateIndexBuffer(m_upload_cmds, cube.indices, index_size * GeoUtils::CubeGeometry::num_indices);
-
-		Gfx::SubMesh* submesh = m_cube_mesh.submeshes.PushBack();
-		submesh->num_indices = cube.num_indices;
-		submesh->base_vertex_location = 0;
-		submesh->first_index_location = 0;
-	}
+	CreateCubeMesh(m_upload_cmds, &m_cube_mesh);
 
 	// Generate per-frame and per-object constant buffers
 	{

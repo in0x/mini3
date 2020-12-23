@@ -2,8 +2,8 @@ struct VertexIn
 {
 	float3 pos_local : POSITION;
 	float3 normal	 : NORMAL;
-	float3 tangent	 : TANGENT;
 	float2 uv		 : TEXCOORD;
+	float3 tangent	 : TANGENT;
 };
 
 struct VertexOut

@@ -162,13 +162,23 @@ namespace Gfx
 		u32 base_vertex_location = 0;
 	};
 
+	struct VertexAttribType
+	{
+		enum Enum
+		{
+			Position,
+			Normal,
+			TexCoord,
+			Tangent,
+
+			EnumCount,
+			EnumFirst = Position
+		};
+	};
+
 	struct Mesh
 	{
-		// When would I need these other than special cases like deformation maybe?
-		CpuBuffer* vertex_buffer_cpu = nullptr;
-		CpuBuffer* index_buffer_cpu = nullptr;
-
-		GpuBuffer vertex_buffer_gpu;
+		GpuBuffer vertex_attribs_gpu[VertexAttribType::EnumCount];
 		GpuBuffer index_buffer_gpu;
 
 		Array<SubMesh, 8> submeshes;

@@ -1229,6 +1229,8 @@ void GpuDeviceDX12::Init(void* windowHandle, u32 output_width, u32 output_height
 
 void GpuDeviceDX12::Destroy()
 {
+	Flush();
+
 	for (ID3D12Resource* buffer : m_created_buffers)
 	{
 		buffer->Release();
@@ -2387,7 +2389,22 @@ namespace Gfx
 
 	void DrawMesh(Commandlist cmd_list_handle, Mesh const* mesh)
 	{
-		BindVertexBuffer(cmd_list_handle, &mesh->vertex_buffer_gpu, 0, 0);
+		struct Local
+		{
+			static __forceinline void BindVB(Commandlist cmd, Mesh const* mesh, VertexAttribType::Enum attrib, u8 slot)
+			{
+				if (mesh->vertex_attribs_gpu[attrib].resource != nullptr)
+				{
+					BindVertexBuffer(cmd, &mesh->vertex_attribs_gpu[attrib], slot, 0);
+				}
+			}
+		};
+
+		// TODO(): We could one-shot this, just need to expose in GPU Api
+		Local::BindVB(cmd_list_handle, mesh, VertexAttribType::Position, 0);
+		Local::BindVB(cmd_list_handle, mesh, VertexAttribType::Normal,   1);
+		Local::BindVB(cmd_list_handle, mesh, VertexAttribType::TexCoord, 2);
+		Local::BindVB(cmd_list_handle, mesh, VertexAttribType::Tangent,  3);
 		BindIndexBuffer(cmd_list_handle, &mesh->index_buffer_gpu, 0);
 
 		ID3D12GraphicsCommandList* command_list = g_gpu_device->HandleToCommandList(cmd_list_handle);

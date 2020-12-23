@@ -215,28 +215,29 @@ namespace Gfx
 
 		elements[1].SemanticName = "NORMAL";
 		elements[1].SemanticIndex = 0;
-		elements[1].Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
-		elements[1].InputSlot = 0;
-		elements[1].AlignedByteOffset = 12;
+		elements[1].Format = DXGI_FORMAT_R32G32B32_FLOAT;
+		elements[1].InputSlot = 1;
+		elements[1].AlignedByteOffset = 0;
 		elements[1].InputSlotClass = D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA;
 		elements[1].InstanceDataStepRate = 0;
 
-		elements[2].SemanticName = "TANGENT";
+		elements[2].SemanticName = "TEXCOORD";
 		elements[2].SemanticIndex = 0;
-		elements[2].Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
-		elements[2].InputSlot = 0;
-		elements[2].AlignedByteOffset = 24;
+		elements[2].Format = DXGI_FORMAT_R32G32_FLOAT;
+		elements[2].InputSlot = 2;
+		elements[2].AlignedByteOffset = 0;
 		elements[2].InputSlotClass = D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA;
 		elements[2].InstanceDataStepRate = 0;
 
-		elements[3].SemanticName = "TEXCOORD";
+		elements[3].SemanticName = "TANGENT";
 		elements[3].SemanticIndex = 0;
-		elements[3].Format = DXGI_FORMAT_R32G32_FLOAT;
-		elements[3].InputSlot = 0;
-		elements[3].AlignedByteOffset = 36;
+		elements[3].Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
+		elements[3].InputSlot = 3;
+		elements[3].AlignedByteOffset = 0;
 		elements[3].InputSlotClass = D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA;
 		elements[3].InstanceDataStepRate = 0;
 
+		
 		pso_desc.DepthStencilState.DepthEnable = true;
 		pso_desc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;
 		pso_desc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_LESS;
