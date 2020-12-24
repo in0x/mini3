@@ -71,4 +71,10 @@ namespace Memory
 	PushParams AlignPush(u64 alignment);
 
 	void* PushSize(Arena* arena, u64 size_bytes, PushParams push_params = DefaultPushParams());
+
+	template <typename T>
+	T* PushType(Arena* arena, u32 count = 1, PushParams push_params = DefaultPushParams())
+	{
+		return static_cast<T*>(PushSize(arena, sizeof(T) * count, push_params));
+	}
 }

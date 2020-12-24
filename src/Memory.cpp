@@ -116,6 +116,11 @@ namespace Memory
 	void* PushSize(Arena* arena, u64 size_bytes, PushParams push_params)
 	{
 		ASSERT(IsPow2(push_params.alignment));
+		if (size_bytes == 0)
+		{
+			ASSERT_FAIL_F("Attempted a 0 alloc!");
+			return nullptr;
+		}
 
 		u8* arena_top = arena->m_memory_block + arena->m_bytes_used;
 		u64 align_offset = GetAlignmentAdjustment(arena_top, push_params.alignment);

@@ -14,10 +14,10 @@ static void CreateCubeMesh(Gfx::Commandlist cmds, Gfx::Mesh* out_mesh)
 	GeoUtils::CubeGeometry cube;
 	GeoUtils::CreateBox(1.5f, 1.5f, 1.5f, &cube);
 
-	u32 const position_size = sizeof(GeoUtils::Position);
-	u32 const normal_size =   sizeof(GeoUtils::Normal);
-	u32 const texcoord_size = sizeof(GeoUtils::TexCoord);
-	u32 const index_size =    sizeof(GeoUtils::Index);
+	u32 const position_size = sizeof(Gfx::Position_t);
+	u32 const normal_size =   sizeof(Gfx::Normal_t);
+	u32 const texcoord_size = sizeof(Gfx::TexCoord_t);
+	u32 const index_size =    sizeof(Gfx::Index_t);
 
 	out_mesh->vertex_attribs_gpu[Gfx::VertexAttribType::Position] = Gfx::CreateVertexBuffer(
 		cmds, cube.position, position_size * GeoUtils::CubeGeometry::num_vertices, position_size);

@@ -1,26 +1,21 @@
 #pragma once
 #include "Core.h"
 #include "Math.h"
+#include "GfxTypes.h"
 
 namespace GeoUtils
 {
-	using Index = u16;
-	using Position = vec3;
-	using Normal = vec3;
-	using Tangent = vec3;
-	using TexCoord = vec2;
-
 	struct CubeGeometry
 	{
 		static u32 const num_vertices = 24;
 		static u32 const num_indices = 36;
 		
-		Position position[num_vertices];
-		Normal   normal[num_vertices];
-		Tangent  tangent_u[num_vertices];
-		TexCoord texcoord[num_vertices];
+		Gfx::Position_t position[num_vertices];
+		Gfx::Normal_t   normal[num_vertices];
+		Gfx::Tangent_t  tangent_u[num_vertices];
+		Gfx::TexCoord_t texcoord[num_vertices];
 		
-		Index indices[num_indices];
+		Gfx::Index_t indices[num_indices];
 	};
 
 	static void CreateBox(f32 width, f32 height, f32 depth, CubeGeometry* out_geo)
@@ -140,7 +135,7 @@ namespace GeoUtils
 		g.texcoord[23] = { 1.0f, 1.0f };
 
 		size_t const num_indices = 36;
-		Index indices[num_indices] = 
+		Gfx::Index_t indices[num_indices] = 
 		{
 			0,  1,  2,	// Front
 			0,  2,  3,
@@ -156,6 +151,6 @@ namespace GeoUtils
 			20, 22, 23
 		};
 
-		memcpy(out_geo->indices, indices, sizeof(Index) * num_indices);
+		memcpy(out_geo->indices, indices, sizeof(Gfx::Index_t) * num_indices);
 	}
 }

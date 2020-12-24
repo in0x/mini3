@@ -3,6 +3,7 @@
 #include "Win32.h"
 #include "d3dx12.h"
 #include "Array.h"
+#include "Math.h"
 
 using Microsoft::WRL::ComPtr;
 
@@ -161,6 +162,12 @@ namespace Gfx
 		u32 first_index_location = 0;
 		u32 base_vertex_location = 0;
 	};
+
+	using Position_t = vec3;
+	using Normal_t = vec3;
+	using Tangent_t = vec3;
+	using TexCoord_t = vec2;
+	using Index_t = u16;
 
 	struct VertexAttribType
 	{
