@@ -19,6 +19,7 @@ private:
 	Gfx::GpuBuffer m_frame_constants;
 	Gfx::GpuBuffer m_obj_constants;
 	
+	Gfx::Mesh m_import_mesh;
 	Gfx::Mesh m_cube_mesh;
 
 	mat44 m_world;

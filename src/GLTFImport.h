@@ -176,16 +176,19 @@ namespace Mini
 		vec2* texcoord_buffer;
 	};
 
-	static void Import(SceneImporter* importer)
+	static MeshImport Import(SceneImporter* importer)
 	{
 		Memory::TemporaryAllocation alloc = BeginTemporaryAlloc(importer->scratch_memory);
+		ON_SCOPE_EXIT(Memory::RewindTemporaryAlloc(importer->scratch_memory, alloc, false));
+		
+		MeshImport imported;
+		MemZeroSafe(imported);
 
 		u64 stream_len;
 		u8* file_data = ReadFileBuffer(importer->file_path, importer->scratch_memory, &stream_len);
 		if (file_data == nullptr)
 		{
-			Memory::RewindTemporaryAlloc(importer->scratch_memory, alloc, true);
-			return;
+			return imported;
 		}
 
 		cgltf_options options;
@@ -223,11 +226,12 @@ namespace Mini
 		ASSERT(mesh->primitives_count == 1);
 		cgltf_primitive* prim = &mesh->primitives[0];
 		cgltf_accessor* indices = prim->indices; 
-		
-		MeshImport imported;
+	
+
+		Memory::Arena* mesh_memory = importer->mesh_memory;
 
 		imported.num_indices = indices->count;
-		imported.index_buffer = Memory::PushType<Gfx::Index_t>(importer->mesh_memory, indices->count);
+		imported.index_buffer = Memory::PushType<Gfx::Index_t>(mesh_memory, indices->count);
 		CopyBuffer((u8*)imported.index_buffer, sizeof(Gfx::Index_t) * indices->count, cgltf_type_scalar, cgltf_component_type_r_16u, indices);
 
 		for (u64 attrib_idx = 0; attrib_idx < prim->attributes_count; ++attrib_idx)
@@ -238,8 +242,58 @@ namespace Mini
 			ASSERT_F(access->offset == 0 && access->buffer_view->stride == 0,
 				"Mesh contains interleaved vertex buffer, this is not currently supported!");
 			
+
+			switch (attrib->type)
+			{
+				case cgltf_attribute_type_position:
+				{
+					imported.num_vertices = access->count;
+
+					u64 bytes_to_alloc = sizeof(Gfx::Position_t) * access->count;
+					u64 alignment = alignof(Gfx::Position_t);
+
+					void* attrib_buffer = Memory::PushSize(mesh_memory, bytes_to_alloc, Memory::AlignPush(alignment));
+					CopyBuffer((u8*)attrib_buffer, bytes_to_alloc, cgltf_type_vec3, cgltf_component_type_r_32f, access);
+					
+					imported.position_buffer = (Gfx::Position_t*)attrib_buffer;
+					break;
+				}
+				case cgltf_attribute_type_normal:
+				{
+					imported.num_vertices = access->count;
+
+					u64 bytes_to_alloc = sizeof(Gfx::Normal_t) * access->count;
+					u64 alignment = alignof(Gfx::Normal_t);
+
+					void* attrib_buffer = Memory::PushSize(mesh_memory, bytes_to_alloc, Memory::AlignPush(alignment));
+					CopyBuffer((u8*)attrib_buffer, bytes_to_alloc, cgltf_type_vec3, cgltf_component_type_r_32f, access);
+
+					imported.normal_buffer = (Gfx::Normal_t*)attrib_buffer;
+					break;
+				}
+				case cgltf_attribute_type_texcoord:
+				{
+					imported.num_vertices = access->count;
+
+					u64 bytes_to_alloc = sizeof(Gfx::TexCoord_t) * access->count;
+					u64 alignment = alignof(Gfx::TexCoord_t);
+
+					void* attrib_buffer = Memory::PushSize(mesh_memory, bytes_to_alloc, Memory::AlignPush(alignment));
+					CopyBuffer((u8*)attrib_buffer, bytes_to_alloc, cgltf_type_vec2, cgltf_component_type_r_32f, access);
+
+					imported.texcoord_buffer = (Gfx::TexCoord_t*)attrib_buffer;
+					break;
+				}
+				default:
+					ASSERT_FAIL_F("Unsupported vertex attribute!");
+					break;
+			}
 		}
 
+		ASSERT(imported.position_buffer != nullptr);
+
+		// TODO(): triangle winding order
+		// TODO(): RH to LH coordinates
 
 		//for (u64 view_idx = 0; view_idx < scene_data->buffer_views_count; ++view_idx)
 		//{
@@ -252,6 +306,6 @@ namespace Mini
 			cgltf_free(scene_data);
 		}
 
-		return;
+		return imported;
 	}
 }

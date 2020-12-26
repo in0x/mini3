@@ -9,8 +9,6 @@
 
 static void CreateCubeMesh(Gfx::Commandlist cmds, Gfx::Mesh* out_mesh)
 {
-	Gfx::OpenCommandList(cmds);
-
 	GeoUtils::CubeGeometry cube;
 	GeoUtils::CreateBox(1.5f, 1.5f, 1.5f, &cube);
 
@@ -36,6 +34,30 @@ static void CreateCubeMesh(Gfx::Commandlist cmds, Gfx::Mesh* out_mesh)
 	submesh->first_index_location = 0;
 }
 
+static void UploadMeshImport(Gfx::Commandlist cmds, Mini::MeshImport const* imported, Gfx::Mesh* out_mesh)
+{
+	u32 const position_size = sizeof(Gfx::Position_t);
+	u32 const normal_size = sizeof(Gfx::Normal_t);
+	u32 const texcoord_size = sizeof(Gfx::TexCoord_t);
+	u32 const index_size = sizeof(Gfx::Index_t);
+
+	out_mesh->vertex_attribs_gpu[Gfx::VertexAttribType::Position] = Gfx::CreateVertexBuffer(
+		cmds, imported->position_buffer, position_size * imported->num_vertices, position_size);
+
+	out_mesh->vertex_attribs_gpu[Gfx::VertexAttribType::Normal] = Gfx::CreateVertexBuffer(
+		cmds, imported->normal_buffer, normal_size * imported->num_vertices, normal_size);
+
+	out_mesh->vertex_attribs_gpu[Gfx::VertexAttribType::TexCoord] = Gfx::CreateVertexBuffer(
+		cmds, imported->texcoord_buffer, texcoord_size * imported->num_vertices, texcoord_size);
+
+	out_mesh->index_buffer_gpu = Gfx::CreateIndexBuffer(cmds, imported->index_buffer, index_size * imported->num_indices);
+
+	Gfx::SubMesh* submesh = out_mesh->submeshes.PushBack();
+	submesh->num_indices = imported->num_indices;
+	submesh->base_vertex_location = 0;
+	submesh->first_index_location = 0;
+}
+
 void MiniApp::Init()
 {
 	__super::Init();
@@ -51,8 +73,10 @@ void MiniApp::Init()
 	importer.scratch_memory = &import_scratch;
 	importer.mesh_memory = &mesh_resource_memory;
 
-	Mini::Import(&importer);
-	Memory::FreeArena(&import_scratch);
+	Mini::MeshImport mesh_data = Mini::Import(&importer);
+	
+	ON_SCOPE_EXIT(Memory::FreeArena(&import_scratch));
+	ON_SCOPE_EXIT(Memory::FreeArena(&mesh_resource_memory));
 
 #ifdef _DEBUG
 	u32 gfx_flags = Gfx::InitFlags::Enable_Debug_Layer | Gfx::InitFlags::Allow_Tearing;
@@ -69,7 +93,9 @@ void MiniApp::Init()
 		m_present_cmds = Gfx::CreateCommandList(D3D12_COMMAND_LIST_TYPE_DIRECT, L"present_cmds");
 	}
 
+	Gfx::OpenCommandList(m_upload_cmds);
 	CreateCubeMesh(m_upload_cmds, &m_cube_mesh);
+	UploadMeshImport(m_upload_cmds, &mesh_data, &m_import_mesh);
 
 	// Generate per-frame and per-object constant buffers
 	{
@@ -112,7 +138,7 @@ void MiniApp::render()
 	Gfx::BindConstantBuffer(&m_frame_constants, Gfx::ShaderStage::Vertex, 0);
 	Gfx::BindConstantBuffer(&m_obj_constants, Gfx::ShaderStage::Vertex, 1);
 
-	Gfx::DrawMesh(m_draw_cmds, &m_cube_mesh);
+	Gfx::DrawMesh(m_draw_cmds, &m_import_mesh);
 	Gfx::SubmitCommandList(m_draw_cmds);
 
 	Gfx::EndPresent(m_present_cmds);
@@ -143,6 +169,7 @@ struct ArcBallCamera
 void UpdateCamera(InputMessages const* input, ArcBallCamera* camera)
 {
 	f32 const rot_speed = 0.2f;
+	f32 const zoom_speed = 0.2f;
 
 	if (IsKeyDown(input, KeyCode::S))
 	{
@@ -162,6 +189,16 @@ void UpdateCamera(InputMessages const* input, ArcBallCamera* camera)
 	if (IsKeyDown(input, KeyCode::A))
 	{
 		camera->m_theta -= rot_speed;
+	}
+
+	if (IsKeyDown(input, KeyCode::ARROW_UP))
+	{
+		camera->m_zoom -= zoom_speed;
+	}
+	
+	if (IsKeyDown(input, KeyCode::ARROW_DOWN))
+	{
+		camera->m_zoom += zoom_speed;
 	}
 
 	camera->m_phi = Clamp(camera->m_phi, 0.1f, Math::Pi - 0.1f); // NOTE(): Restrict to ~+-180°
@@ -193,10 +230,9 @@ bool MiniApp::Update()
 		f32 angle = sin(total_time);
 
 		mat44 translate = Math::Translation<mat44>(0.0f, 0.0f, 0.0f);
-		mat44 rotation = Math::RotationX<mat44>(Math::Rad(angle));
+		mat44 rotation = Math::RotationXYZ<mat44>(Math::Rad(0.0f), Math::Rad(0.0f), Math::Rad(angle));
 
-		//m_world = translate * rotation;
-		m_world = translate;
+		m_world = translate * rotation;
 	}
 
 	static ArcBallCamera s_camera;
