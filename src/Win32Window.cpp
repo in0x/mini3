@@ -220,8 +220,6 @@ static LRESULT CALLBACK OnMainWindowEvent(HWND handle, UINT message, WPARAM wPar
 
 	case WM_MOUSEMOVE:
 	{
-		if (wParam == 0) break;
-
 		if (wParam & MK_LBUTTON)
 		{
 			window->m_msg_queue.AddMouseChange(

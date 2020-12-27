@@ -131,8 +131,6 @@ namespace Mini
 
 		u64 total_buffer_size = num_components * component_size * accessor->count;
 		return total_buffer_size;
-
-		//return (u8*)Memory::PushSize(alloc, total_buffer_size);
 	}
 
 	
@@ -175,6 +173,40 @@ namespace Mini
 		vec3* normal_buffer;
 		vec2* texcoord_buffer;
 	};
+
+	static void FlipTriangleWinding(Gfx::Index_t* vertices, u64 const count)
+	{
+		ASSERT(count % 3 == 0);
+
+		u64 last_tri = count - 3;
+		for (u64 i = 0; i <= last_tri; i += 3)
+		{
+			Gfx::Index_t temp = vertices[i + 1];
+			vertices[i + 1] = vertices[i + 2];
+			vertices[i + 2] = temp;
+		}
+	}
+
+	static void InvertZ(vec3* vertices, u64 const count)
+	{
+		for (u64 i = 0; i < count; ++i)
+		{
+			vertices[i].z = -vertices[i].z;
+		}
+	}
+
+	static void ChangeBasis(vec3* vertices, u64 const count)
+	{
+		mat44 basis_change = mat44::Identity();
+		basis_change(2, 2) = -1.0f;
+
+		for (u64 i = 0; i < count; ++i)
+		{
+			vec4 v = vertices[i];
+			v.w = 1.0f;
+			vertices[i] = Math::Mul(basis_change, v).xyz;
+		}
+	}
 
 	static MeshImport Import(SceneImporter* importer)
 	{
@@ -233,6 +265,8 @@ namespace Mini
 		imported.num_indices = indices->count;
 		imported.index_buffer = Memory::PushType<Gfx::Index_t>(mesh_memory, indices->count);
 		CopyBuffer((u8*)imported.index_buffer, sizeof(Gfx::Index_t) * indices->count, cgltf_type_scalar, cgltf_component_type_r_16u, indices);
+		
+		FlipTriangleWinding(imported.index_buffer, indices->count);
 
 		for (u64 attrib_idx = 0; attrib_idx < prim->attributes_count; ++attrib_idx)
 		{
@@ -242,7 +276,6 @@ namespace Mini
 			ASSERT_F(access->offset == 0 && access->buffer_view->stride == 0,
 				"Mesh contains interleaved vertex buffer, this is not currently supported!");
 			
-
 			switch (attrib->type)
 			{
 				case cgltf_attribute_type_position:
@@ -256,6 +289,8 @@ namespace Mini
 					CopyBuffer((u8*)attrib_buffer, bytes_to_alloc, cgltf_type_vec3, cgltf_component_type_r_32f, access);
 					
 					imported.position_buffer = (Gfx::Position_t*)attrib_buffer;
+					ChangeBasis(imported.position_buffer, access->count);
+					
 					break;
 				}
 				case cgltf_attribute_type_normal:
@@ -269,6 +304,8 @@ namespace Mini
 					CopyBuffer((u8*)attrib_buffer, bytes_to_alloc, cgltf_type_vec3, cgltf_component_type_r_32f, access);
 
 					imported.normal_buffer = (Gfx::Normal_t*)attrib_buffer;
+					ChangeBasis(imported.normal_buffer, access->count);
+
 					break;
 				}
 				case cgltf_attribute_type_texcoord:
@@ -292,15 +329,8 @@ namespace Mini
 
 		ASSERT(imported.position_buffer != nullptr);
 
-		// TODO(): triangle winding order
-		// TODO(): RH to LH coordinates
+		// TODO(): Remap texcoords
 
-		//for (u64 view_idx = 0; view_idx < scene_data->buffer_views_count; ++view_idx)
-		//{
-		//	cgltf_buffer_view* view = &scene_data->buffer_views[view_idx];
-		//	//view->type
-		//}
-		
 		if (result == cgltf_result_success)
 		{
 			cgltf_free(scene_data);

@@ -140,10 +140,6 @@ void MiniApp::render()
 
 	Gfx::DrawMesh(m_draw_cmds, &m_import_mesh);
 
-	obj_constants.model = Math::RotationX<mat44>(Math::Rad(Math::Pi / 8.0f)) * Math::Translation<mat44>(0.0f, 0.0f, 5.0f);
-	Gfx::UpdateBuffer(m_draw_cmds, &m_obj_constants, &obj_constants, sizeof(obj_constants));
-	Gfx::DrawMesh(m_draw_cmds, &m_cube_mesh);
-
 	Gfx::SubmitCommandList(m_draw_cmds);
 
 	Gfx::EndPresent(m_present_cmds);
@@ -184,7 +180,7 @@ void ProcessCameraInput(InputMessages const* input, ArcBallCamera* camera)
 				f32 dx = msg.m_data.m_mouse_pos.x - camera->m_last_mouse_x;
 				f32 dy = msg.m_data.m_mouse_pos.y - camera->m_last_mouse_y;
 
-				camera->m_theta += Math::DegreeToRad(0.2f * dx);
+				camera->m_theta -= Math::DegreeToRad(0.2f * dx);
 				camera->m_phi += Math::DegreeToRad(0.2f * dy);
 			}
 			else if (msg.m_key == KeyCode::MSB_RIGHT)
@@ -239,7 +235,7 @@ bool MiniApp::Update()
 		f32 angle = sin(total_time);
 
 		mat44 translate = Math::Translation<mat44>(0.0f, 0.0f, 0.0f);
-		mat44 rotation = Math::RotationXYZ<mat44>(Math::Rad(0.0f), Math::Rad(0.0f), Math::Rad(0.0f));
+		mat44 rotation = Math::RotationXYZ<mat44>(Math::Rad(-0.7f), Math::Rad(0.0f), Math::Rad(0.0f));
 
 		m_world = translate * rotation;
 	}

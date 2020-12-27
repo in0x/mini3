@@ -384,18 +384,14 @@ namespace Math
 
 	static MM_DEFAULT_INL mat44 MM_VECTORCALL MatrixPerspectiveFovLH(f32 fov_y_rad, f32 aspect_ratio, f32 near_z, f32 far_z)
 	{
-		f32 sin_fov = sinf(0.5f * fov_y_rad);
-		f32 cos_fov = cosf(0.5f * fov_y_rad);
-
-		f32 height = cos_fov / sin_fov;
-		f32 width = height / aspect_ratio;
-		f32 z_range = far_z / (far_z - near_z);
+		f32 g = 1.0f / tanf(fov_y_rad * 0.5f);
+		f32 k = far_z / (far_z - near_z);
 	
 		return mat44(
-				width, 0, 0, 0,
-				0, height, 0, 0,
-				0, 0, z_range, -z_range * near_z,
-				0, 0, 1.0f, 0);
+			g / aspect_ratio, 0, 0, 0,
+			0, g, 0, 0,
+			0, 0, k, -near_z * k,
+			0, 0, 1.0f, 0);
 	}
 
 	// Returns a vec3 (0,0,0).

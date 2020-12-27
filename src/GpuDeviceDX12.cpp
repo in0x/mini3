@@ -1013,11 +1013,12 @@ void GpuDeviceDX12::BeginPresent(Gfx::Commandlist present_cmd_list)
 
 	// Clear the backbuffer and views. 
 	{
-		f32 const blueViolet[4] = { 0.541176498f, 0.168627456f, 0.886274576f, 1.000000000f };
+		//f32 const blueViolet[4] = { 0.541176498f, 0.168627456f, 0.886274576f, 1.000000000f };
+		f32 const black[4] = { 0.0f, 0.0f, 0.0f, 1.000000000f };
 
 		CD3DX12_CPU_DESCRIPTOR_HANDLE rtvDescriptor = GetRenderTargetView();
 		CD3DX12_CPU_DESCRIPTOR_HANDLE dsvDescriptor = GetDepthStencilView();
-		cmd_list->ClearRenderTargetView(rtvDescriptor, blueViolet, 0, nullptr);
+		cmd_list->ClearRenderTargetView(rtvDescriptor, black, 0, nullptr);
 		cmd_list->ClearDepthStencilView(dsvDescriptor, D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, 0, nullptr);
 	}
 
