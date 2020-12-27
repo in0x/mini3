@@ -5,6 +5,7 @@
 
 class MiniApp : public BaseApp
 {
+public:
 	virtual void Init() override;
 	virtual bool Update() override;
 	virtual void Exit() override;

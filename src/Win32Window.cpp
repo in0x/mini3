@@ -154,6 +154,17 @@ static KeyCode::Enum MapVKToKeyCode(WPARAM key_code)
 	}
 }
 
+static KeyCode::Enum MapEventToMouse(UINT ev)
+{
+	switch (ev)
+	{
+	case WM_LBUTTONDOWN: return KeyCode::MSB_LEFT;
+	case WM_RBUTTONDOWN: return KeyCode::MSB_RIGHT;
+	case WM_MBUTTONDOWN: return KeyCode::MSB_MIDDLE;
+	default: return KeyCode::UNKNOWN;
+	}
+}
+
 static LRESULT CALLBACK OnMainWindowEvent(HWND handle, UINT message, WPARAM wParam, LPARAM lParam)
 {
 	// WPARAM -> Word parameter, carries "words" i.e. handle, integers
@@ -183,15 +194,75 @@ static LRESULT CALLBACK OnMainWindowEvent(HWND handle, UINT message, WPARAM wPar
 	
 	case WM_KEYDOWN:
 	{
-		window->m_msg_queue.AddKeyMessage(MapVKToKeyCode(wParam), true);
+		window->m_msg_queue.AddKeyChange(MapVKToKeyCode(wParam), true);
 		break;
 	}
 	
 	case WM_KEYUP:
 	{
-		window->m_msg_queue.AddKeyMessage(MapVKToKeyCode(wParam), false);
+		window->m_msg_queue.AddKeyChange(MapVKToKeyCode(wParam), false);
 		break;
 	}
+	
+	case WM_LBUTTONDOWN:
+	case WM_RBUTTONDOWN:
+	case WM_MBUTTONDOWN:
+	{
+		window->m_msg_queue.AddMouseChange(
+			KeyMsg::KeyDown, 
+			MapEventToMouse(message),
+			GET_X_LPARAM(lParam), 
+			GET_Y_LPARAM(lParam));
+		
+		SetCapture((HWND)window->m_main_window_handle);
+		break;
+	}
+
+	case WM_MOUSEMOVE:
+	{
+		if (wParam == 0) break;
+
+		if (wParam & MK_LBUTTON)
+		{
+			window->m_msg_queue.AddMouseChange(
+				KeyMsg::MouseMove,
+				KeyCode::MSB_LEFT,
+				GET_X_LPARAM(lParam),
+				GET_Y_LPARAM(lParam));
+		}
+
+		if (wParam & MK_RBUTTON)
+		{
+			window->m_msg_queue.AddMouseChange(
+				KeyMsg::MouseMove,
+				KeyCode::MSB_RIGHT,
+				GET_X_LPARAM(lParam),
+				GET_Y_LPARAM(lParam));
+		}
+		
+		break;
+	}
+
+	case WM_MOUSEWHEEL:
+	{
+		window->m_msg_queue.AddMouseWheelChange(GET_WHEEL_DELTA_WPARAM(wParam));
+		break;
+	}
+
+	case WM_LBUTTONUP:
+	case WM_RBUTTONUP:
+	case WM_MBUTTONUP:
+	{
+		window->m_msg_queue.AddMouseChange(
+			KeyMsg::KeyUp, 
+			MapEventToMouse(message),
+			GET_X_LPARAM(lParam),
+			GET_Y_LPARAM(lParam));
+		
+		ReleaseCapture();
+		break;
+	}
+
 	}
 	return DefWindowProc(handle, message, wParam, lParam);
 }

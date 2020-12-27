@@ -139,68 +139,77 @@ void MiniApp::render()
 	Gfx::BindConstantBuffer(&m_obj_constants, Gfx::ShaderStage::Vertex, 1);
 
 	Gfx::DrawMesh(m_draw_cmds, &m_import_mesh);
+
+	obj_constants.model = Math::RotationX<mat44>(Math::Rad(Math::Pi / 8.0f)) * Math::Translation<mat44>(0.0f, 0.0f, 5.0f);
+	Gfx::UpdateBuffer(m_draw_cmds, &m_obj_constants, &obj_constants, sizeof(obj_constants));
+	Gfx::DrawMesh(m_draw_cmds, &m_cube_mesh);
+
 	Gfx::SubmitCommandList(m_draw_cmds);
 
 	Gfx::EndPresent(m_present_cmds);
 }
 
-bool IsKeyDown(InputMessages const* msg, KeyCode::Enum key)
-{
-	for (u32 i = msg->m_keys.Size(); i--;)
-	{
-		if (msg->m_keys[i].m_key == key)
-		{
-			return true;
-		}
-	}
-
-	return false;
-}
-
 struct ArcBallCamera
 {
+	vec3 m_eye_pos;
+
 	f32 m_phi = Math::Pi / 4.0f;
 	f32 m_zoom = 5.0f;
 	f32 m_theta =  Math::Pi * 1.5f;
 
-	vec3 m_eye_pos;
+	f32 m_last_mouse_x;
+	f32 m_last_mouse_y;
 };
 
-void UpdateCamera(InputMessages const* input, ArcBallCamera* camera)
+void ProcessCameraInput(InputMessages const* input, ArcBallCamera* camera)
 {
-	f32 const rot_speed = 0.2f;
-	f32 const zoom_speed = 0.2f;
+	u32 const num_inputs = input->m_keys.Size();
+	for (u32 i = 0; i < num_inputs; ++i)
+	{
+		KeyMsg const& msg = input->m_keys[i];
 
-	if (IsKeyDown(input, KeyCode::S))
-	{
-		camera->m_phi += rot_speed;
-	}
-	
-	if (IsKeyDown(input, KeyCode::W))
-	{
-		camera->m_phi -= rot_speed;
-	}
-	
-	if (IsKeyDown(input, KeyCode::D))
-	{
-		camera->m_theta += rot_speed;
-	}
+		switch (msg.m_type)
+		{
+		case KeyMsg::KeyDown:
+		case KeyMsg::KeyUp:
+		{
+			camera->m_last_mouse_x = msg.m_data.m_mouse_pos.x;
+			camera->m_last_mouse_y = msg.m_data.m_mouse_pos.y;
+			break;
+		}
+		case KeyMsg::MouseMove:
+		{
+			if (msg.m_key == KeyCode::MSB_LEFT)
+			{
+				f32 dx = msg.m_data.m_mouse_pos.x - camera->m_last_mouse_x;
+				f32 dy = msg.m_data.m_mouse_pos.y - camera->m_last_mouse_y;
 
-	if (IsKeyDown(input, KeyCode::A))
-	{
-		camera->m_theta -= rot_speed;
-	}
+				camera->m_theta += Math::DegreeToRad(0.2f * dx);
+				camera->m_phi += Math::DegreeToRad(0.2f * dy);
+			}
+			else if (msg.m_key == KeyCode::MSB_RIGHT)
+			{
+				f32 dx = msg.m_data.m_mouse_pos.x - camera->m_last_mouse_x;
+				f32 dy = msg.m_data.m_mouse_pos.y - camera->m_last_mouse_y;
 
-	if (IsKeyDown(input, KeyCode::ARROW_UP))
-	{
-		camera->m_zoom -= zoom_speed;
-	}
-	
-	if (IsKeyDown(input, KeyCode::ARROW_DOWN))
-	{
-		camera->m_zoom += zoom_speed;
-	}
+				camera->m_zoom += (0.01f * (dx - dy));
+			}
+			
+			camera->m_last_mouse_x = msg.m_data.m_mouse_pos.x;
+			camera->m_last_mouse_y = msg.m_data.m_mouse_pos.y;
 
+			break;
+		}
+		case KeyMsg::MouseWheel:
+		{
+			camera->m_zoom -= 0.005f * msg.m_data.wheel_delta;
+		}
+		}
+	}
+}
+
+void EvaluateCameraMatrices(ArcBallCamera* camera)
+{
 	camera->m_phi = Clamp(camera->m_phi, 0.1f, Math::Pi - 0.1f); // NOTE(): Restrict to ~+-180°
 
 	camera->m_eye_pos.x = camera->m_zoom * sinf(camera->m_phi) * cosf(camera->m_theta);
@@ -230,13 +239,14 @@ bool MiniApp::Update()
 		f32 angle = sin(total_time);
 
 		mat44 translate = Math::Translation<mat44>(0.0f, 0.0f, 0.0f);
-		mat44 rotation = Math::RotationXYZ<mat44>(Math::Rad(0.0f), Math::Rad(0.0f), Math::Rad(angle));
+		mat44 rotation = Math::RotationXYZ<mat44>(Math::Rad(0.0f), Math::Rad(0.0f), Math::Rad(0.0f));
 
 		m_world = translate * rotation;
 	}
 
 	static ArcBallCamera s_camera;
-	UpdateCamera(&input, &s_camera);
+	ProcessCameraInput(&input, &s_camera);
+	EvaluateCameraMatrices(&s_camera);
 
 	// Calc view matrix
 	{

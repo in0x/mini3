@@ -74,9 +74,13 @@ public:
 		return m_data;
 	}
 
-	void Clear()
+	void Clear(bool clear_memory = false)
 	{
 		m_size = 0;
+		if (clear_memory)
+		{
+			memzero(m_data, sizeof(T) * m_size);
+		}
 	}
 
 	u32 IndexOf(T* ptr)
